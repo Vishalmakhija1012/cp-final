@@ -1,0 +1,1290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Executive Sales Dashboard</title>
+    <!-- Load Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+    <!-- Add Lucide UMD CDN -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <!-- Load React, ReactDOM, and Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        /* Base font application and necessary structural CSS not covered by Tailwind */
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* Custom scrollbar for a cleaner look (optional but good practice) */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9; /* slate-100 */
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1; /* slate-300 */
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; /* slate-400 */
+        }
+    </style>
+</head>
+<body>
+    <div id="root">
+        <!-- React App will be mounted here -->
+    </div>
+
+    <script type="text/babel">
+        // --- LUCIDE ICONS: use <i data-lucide="icon-name"> and call lucide.createIcons() after render ---
+
+        // --- COMPANY CONFIGURATION ---
+        const COMPANY_NAME = "ExecutiveView";
+        const CEO_EMAIL_DEFAULT = "ceo@company.com";
+
+        // --- GOOGLE SHEETS API CONFIG ---
+        const SHEET_ID = "1onk84hhICV_cNrBtMrqNoQxwDIZFMH5nIxP87qUr7TU";
+        const API_KEY = "AIzaSyCeRlGuR4sBZsoMlOFlrzZkcceh-iTT8No";
+        const SHEET_RANGE = "DB"; // Changed from "Sheet1" to your actual tab name
+        const SHEETS_API_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${SHEET_RANGE}?key=${API_KEY}`;
+
+        function sheetsToJson(apiData) {
+          if (!apiData.values || apiData.values.length < 2) return [];
+          const headers = apiData.values[0];
+          return apiData.values.slice(1).map(row => {
+            const obj = {};
+            headers.forEach((header, idx) => {
+              obj[header] = row[idx] || "";
+            });
+            return obj;
+          });
+        }
+
+        // --- UTILITY COMPONENTS ---
+
+        const Card = ({ children, className = "" }) => (
+          <div className={`bg-[#E3F2FD] rounded-xl border border-slate-200 shadow-sm ${className}`}>
+            {children}
+          </div>
+        );
+
+        const ChartHeader = ({ title }) => (
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-2xl font-bold text-slate-800 uppercase tracking-wide">{title}</h3>
+          </div>
+        );
+
+        const KPICard = ({ title, value, subtext, colorClass }) => (
+          <Card className="p-6 h-full flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                {/* Icon removed */}
+              </div>
+              <h3 className="text-slate-500 text-sm font-medium mb-1">{title}</h3>
+              <p className="text-2xl font-bold text-slate-800">{value}</p>
+            </div>
+            {subtext && <p className="text-xs text-slate-400 mt-2">{subtext}</p>}
+          </Card>
+        );
+
+        const SimpleHorizontalBar = ({ label, value, maxValue, colorClass, subValue }) => {
+          const width = Math.min(100, Math.max(5, (value / maxValue) * 100));
+          return (
+            <div className="mb-4 last:mb-0 group">
+              <div className="flex justify-between text-sm mb-1">
+                <span className="font-medium text-slate-700">{label}</span>
+                <span className="font-bold text-slate-800">{subValue}</span>
+              </div>
+              <div className="w-full bg-slate-100 rounded-full h-2.5">
+                <div
+                  className={`h-2.5 rounded-full ${colorClass} transition-all duration-500`}
+                  style={{ width: `${width}%` }}
+                ></div>
+              </div>
+            </div>
+          );
+        };
+
+        const AvgRateBar = ({ label, avgValue, maxAvg, colorClass, count }) => {
+          const width = Math.min(100, Math.max(5, (avgValue / maxAvg) * 100));
+          return (
+            <div className="mb-4 last:mb-0">
+              <div className="flex justify-between items-end mb-1">
+                <span className="text-sm font-medium text-slate-600">{label}</span>
+                <div className="text-right">
+                  <span className="text-lg font-bold text-slate-800 block">₹{avgValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  {count !== undefined && <span className="text-[10px] text-slate-400 font-medium">{count} Machines</span>}
+                </div>
+              </div>
+              <div className="w-full bg-slate-100 rounded-full h-2.5">
+                <div
+                  className={`h-2.5 rounded-full ${colorClass}`}
+                  style={{ width: `${width}%` }}
+                ></div>
+              </div>
+            </div>
+          );
+        };
+
+        const SplitBarChart = ({ leftLabel, leftValue, rightLabel, rightValue, leftColor, rightColor, leftColorClass, rightColorClass }) => {
+          const total = leftValue + rightValue;
+          const leftPct = total > 0 ? (leftValue / total) * 100 : 0;
+          const rightPct = total > 0 ? (rightValue / total) * 100 : 0;
+
+          // Helper for short INR (reused from view)
+          const formatShortINR = (value) => {
+            const num = Number(value);
+            if (isNaN(num)) return '₹0.00';
+            if (num >= 10000000) return '₹' + (num / 10000000).toFixed(2) + ' Cr';
+            if (num >= 100000) return '₹' + (num / 100000).toFixed(2) + ' L';
+            if (num >= 1000) return '₹' + (num / 1000).toFixed(2) + ' k';
+            return '₹' + num.toFixed(2);
+          };
+
+          const displayLeft = typeof leftValue === 'number' && leftValue > 1000 ? formatShortINR(leftValue) : leftValue;
+          const displayRight = typeof rightValue === 'number' && rightValue > 1000 ? formatShortINR(rightValue) : rightValue;
+          return (
+            <div className="flex flex-col h-full justify-center">
+              <div className="flex justify-between items-end mb-2">
+                <div className="text-left">
+                  <span className={`block text-xs font-semibold uppercase tracking-wide ${leftColorClass}`}>{leftLabel}</span>
+                  <span className="text-2xl font-bold text-slate-800">{displayLeft}</span>
+                </div>
+                <div className="text-right">
+                  <span className={`block text-xs font-semibold uppercase tracking-wide ${rightColorClass}`}>{rightLabel}</span>
+                  <span className="text-2xl font-bold text-slate-800">{displayRight}</span>
+                </div>
+              </div>
+              <div className="w-full h-6 flex rounded-full overflow-hidden bg-slate-100 relative">
+                <div className={`h-full flex items-center justify-center text-[10px] text-white font-bold transition-all duration-500`} style={{ width: `${leftPct}%`, backgroundColor: leftColor }}>
+                  {leftPct > 10 && `${Math.round(leftPct)}%`}
+                </div>
+                <div className={`h-full flex items-center justify-center text-[10px] text-white font-bold transition-all duration-500`} style={{ width: `${rightPct}%`, backgroundColor: rightColor }}>
+                  {rightPct > 10 && `${Math.round(rightPct)}%`}
+                </div>
+              </div>
+            </div>
+          );
+        };
+
+        const PlaceholderView = ({ title }) => (
+          <div className="p-8 text-center bg-[#FFFDE7] rounded-xl border border-slate-200 shadow-sm min-h-[500px] flex flex-col items-center justify-center">
+            <h2 className="text-xl font-bold text-slate-800">{title} Dashboard</h2>
+            <p className="text-slate-500 mt-2">Data and charts for the {title} department will be integrated soon.</p>
+            <p className="text-xs text-slate-400 mt-4">Please select 'Sales & Leasing' for the current live view.</p>
+          </div>
+        );
+
+        // --- SALES VIEW ---
+
+        const SalesView = () => {
+          // --- STATE FOR DATA & FILTERS ---
+          const [leasingData, setLeasingData] = React.useState([]);
+          const [isLoadingData, setIsLoadingData] = React.useState(true);
+          const [timeFilter, setTimeFilter] = React.useState('ALL');
+          const [repFilter, setRepFilter] = React.useState('All');
+          const [conditionFilter, setConditionFilter] = React.useState('All');
+          const [categoryFilter, setCategoryFilter] = React.useState('All');
+          const [lockInFilter, setLockInFilter] = React.useState('All');
+          const [dealTypeFilter, setDealTypeFilter] = React.useState('All');
+          const [groupFilter, setGroupFilter] = React.useState('All');
+          const [salesTypeFilter, setSalesTypeFilter] = React.useState('All Sales Types');
+          const [showMobileFilters, setShowMobileFilters] = React.useState(false);
+
+          // Table sorting state and handler for Top Performers
+          const [sortCol, setSortCol] = React.useState('wonVolume');
+          const [sortDir, setSortDir] = React.useState('desc');
+          const handleSort = (col) => {
+            if (sortCol === col) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+            else { setSortCol(col); setSortDir('desc'); }
+          };
+
+          // --- DATA FETCHING FROM BACKEND API ---
+          React.useEffect(() => {
+            const fetchSheetData = async () => {
+              setIsLoadingData(true);
+              try {
+                const response = await fetch(SHEETS_API_URL);
+                const apiData = await response.json();
+                const data = sheetsToJson(apiData);
+                setLeasingData(data);
+              } catch (error) {
+                console.error('Error fetching Google Sheets API:', error);
+                setLeasingData([]);
+              }
+              setIsLoadingData(false);
+            };
+            fetchSheetData();
+          }, []);
+
+          // --- FILTER LOGIC ---
+          const uniqueReps = React.useMemo(() => ['All', ...new Set(leasingData.map(d => d.email.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase())))], [leasingData]);
+          const uniqueConditions = React.useMemo(() => ['All', 'New', 'Old/Refurbished'], []);
+          const uniqueCategories = React.useMemo(() => ['All', ...new Set(leasingData.map(d => d.deviceCategory))], [leasingData]);
+          const uniqueGroups = React.useMemo(() => ['All', ...new Set(leasingData.map(d => d.groupCompany || 'Other'))], [leasingData]);
+          const lockInOptions = ['All Lockins', '<= 1 Month', '3 Months', '6 Months', '12 Months', '24 Months', '36 Months'];
+          const dealTypeOptions = ['All', 'Leasing', 'Renting'];
+          const salesTypeOptions = ['All Sales Types', 'Hunting', 'Farming'];
+
+          const filteredData = React.useMemo(() => {
+            if (!leasingData.length) return [];
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const currentMonth = now.getMonth();
+            
+            // Function to calculate week of the year
+            const getWeek = (d) => {
+              const date = new Date(d.getTime());
+              date.setHours(0, 0, 0, 0);
+              date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
+              const week1 = new Date(date.getFullYear(), 0, 4);
+              return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+            }
+            const currentWeek = getWeek(now);
+
+            return leasingData.filter(deal => {
+              const dealDate = new Date(deal.timestamp);
+              
+              // Time Filter
+              if (timeFilter === 'YTD' && dealDate.getFullYear() !== currentYear) return false;
+              if (timeFilter === 'MTD' && (dealDate.getMonth() !== currentMonth || dealDate.getFullYear() !== currentYear)) return false;
+              if (timeFilter === 'WTD' && (getWeek(dealDate) !== currentWeek || dealDate.getFullYear() !== currentYear)) return false;
+              
+              // Sales Rep Filter
+              if (repFilter !== 'All') {
+                const dealRepName = deal.email.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase());
+                if (dealRepName !== repFilter) return false;
+              }
+              
+              // Condition Filter
+              if (conditionFilter !== 'All') {
+                const isNew = deal.condition === 'New';
+                if (conditionFilter === 'New' && !isNew) return false;
+                if (conditionFilter === 'Old/Refurbished' && isNew) return false;
+              }
+              
+              // Category Filter
+              if (categoryFilter !== 'All' && deal.deviceCategory !== categoryFilter) return false;
+              
+              // Deal Type Filter
+              if (dealTypeFilter !== 'All' && deal.dealType !== dealTypeFilter) return false;
+              
+              // Lock-in Filter
+              if (lockInFilter !== 'All Lockins') {
+                const months = Number(deal.lockInMonths);
+                if (lockInFilter === '<= 1 Month' && months > 1) return false;
+                if (lockInFilter === '3 Months' && months !== 3) return false;
+                if (lockInFilter === '6 Months' && months !== 6) return false;
+                if (lockInFilter === '12 Months' && months !== 12) return false;
+                if (lockInFilter === '24 Months' && months !== 24) return false;
+                if (lockInFilter === '36 Months' && months !== 36) return false;
+              }
+              
+              // Group Filter
+              if (groupFilter !== 'All') {
+                const group = deal.groupCompany || 'Other';
+                if (group !== groupFilter) return false;
+              }
+
+              // Sales Type Filter
+              if (salesTypeFilter && salesTypeFilter !== 'All Sales Types') {
+                if (salesTypeFilter === 'Hunting' && deal.clientType !== 'New') return false;
+                if (salesTypeFilter === 'Farming' && deal.clientType !== 'Existing') return false;
+              }
+
+              return true;
+            });
+          }, [leasingData, timeFilter, repFilter, conditionFilter, categoryFilter, lockInFilter, dealTypeFilter, groupFilter, salesTypeFilter]);
+
+          // Aggregations
+          const wonDeals = filteredData.filter(d => d.poReceived === 'Yes');
+          const pipelineDeals = filteredData.filter(d => d.poReceived === 'No');
+
+          // Debug Logs
+          console.log('Contract Value Entries:', wonDeals.map(d => d.contractValue));
+          console.log('Contract Value Sum:', wonDeals.reduce((acc, curr) => acc + Number((curr.contractValue || "0").toString().replace(/,/g, "")), 0));
+          console.log('Contract Value Count:', wonDeals.length);
+
+          // Section 1
+          const totalContractValue = wonDeals.reduce((acc, curr) => acc + Number(curr.contractValue.replace(/,/g, '') || 0), 0);
+          // Section 2
+          const newClientRevenue = wonDeals.filter(d => d.clientType === 'New').reduce((acc, curr) => acc + Number(curr.contractValue || 0), 0);
+          const existingClientRevenue = wonDeals.filter(d => d.clientType === 'Existing').reduce((acc, curr) => acc + Number(curr.contractValue || 0), 0);
+          // Section 3
+          const totalMonthlyBilling = wonDeals.reduce((acc, curr) => acc + Number(curr.monthlyBilling || 0), 0);
+          // Section 4
+          const newClientMRR = wonDeals.filter(d => d.clientType === 'New').reduce((acc, curr) => acc + Number(curr.monthlyBilling || 0), 0);
+          const existingClientMRR = wonDeals.filter(d => d.clientType === 'Existing').reduce((acc, curr) => acc + Number(curr.monthlyBilling || 0), 0);
+          // Section 5
+          const pipelineVolume = pipelineDeals.reduce((acc, curr) => acc + Number(curr.contractValue || 0), 0);
+          // Section 6
+          const totalDevices = filteredData.filter(d => d.poReceived === 'Yes').reduce((acc, curr) => acc + Number(curr.delivered || 0) + Number(curr.pending || 0), 0);
+          const totalDelivered = filteredData.filter(d => d.poReceived === 'Yes').reduce((acc, curr) => acc + Number(curr.delivered || 0), 0);
+          const pendingDeliveries = filteredData.filter(d => d.poReceived === 'Yes').reduce((acc, curr) => acc + Number(curr.pending || 0), 0);
+
+          // Section 7: Delivered Orders (New vs Old)
+          const newDeviceQty = wonDeals.filter(d => d.condition === 'New').reduce((acc, curr) => acc + Number(curr.delivered || 0), 0);
+          const oldDeviceQty = wonDeals.filter(d => d.condition !== 'New').reduce((acc, curr) => acc + Number(curr.delivered || 0), 0);
+          // Section 8: Pending Delivery Mix
+          const totalPending = filteredData.filter(d => d.poReceived === 'Yes').reduce((acc, curr) => acc + Number(curr.pending || 0), 0);
+          const newPendingQty = filteredData.filter(d => d.poReceived === 'Yes' && d.condition === 'New').reduce((acc, curr) => acc + Number(curr.pending || 0), 0);
+          const oldPendingQty = filteredData.filter(d => d.poReceived === 'Yes' && d.condition !== 'New').reduce((acc, curr) => acc + Number(curr.pending || 0), 0);
+
+          // Revenue Mix (Contract) percentage calculation
+          const totalMix = newClientRevenue + existingClientRevenue;
+          const leftPct = totalMix > 0 ? (newClientRevenue / totalMix) * 100 : 0;
+          const rightPct = totalMix > 0 ? (existingClientRevenue / totalMix) * 100 : 0;
+
+          // Section 4: Monthly Billing Mix (MRR) percentage calculation
+          const totalMRRMix = newClientMRR + existingClientMRR;
+          const leftMRRPct = totalMRRMix > 0 ? (newClientMRR / totalMRRMix) * 100 : 0;
+          const rightMRRPct = totalMRRMix > 0 ? (existingClientMRR / totalMRRMix) * 100 : 0;
+
+          // Splits (Device Mix)
+          const workstationQty = filteredData.filter(d => d.poReceived === 'Yes' && (d.deviceCategory.includes('Work Station') || d.deviceCategory.includes('ZBook') || d.deviceCategory.includes('Mac Studio'))).reduce((acc, curr) => acc + Number(curr.delivered || 0) + Number(curr.pending || 0), 0);
+          const laptopQty = filteredData.filter(d => d.poReceived === 'Yes' && !d.deviceCategory.includes('Work Station') && !d.deviceCategory.includes('ZBook') && !d.deviceCategory.includes('Mac Studio')).reduce((acc, curr) => acc + Number(curr.delivered || 0) + Number(curr.pending || 0), 0);
+
+          const totalNewQty = filteredData.filter(d => d.condition === 'New').reduce((acc, curr) => acc + curr.quantity, 0);
+          const totalOldQty = filteredData.filter(d => d.condition !== 'New').reduce((acc, curr) => acc + curr.quantity, 0);
+
+          // Section 9: Total Fleet (Type) - Table for all unique categories
+          const categoryTotals = {};
+          filteredData.filter(d => d.poReceived === 'Yes').forEach(deal => {
+            const cat = deal.deviceCategory || 'Other';
+            if (!categoryTotals[cat]) categoryTotals[cat] = 0;
+            categoryTotals[cat] += Number(deal.delivered || 0) + Number(deal.pending || 0);
+          });
+          const uniqueCategoriesForFleet = Object.keys(categoryTotals);
+          const totalFleetDevices = Object.values(categoryTotals).reduce((a, b) => a + b, 0);
+
+          // Avg Rates Calculation
+          const wonNew = wonDeals.filter(d => d.condition === 'New');
+          const wonOld = wonDeals.filter(d => d.condition !== 'New');
+          const newBillSum = wonNew.reduce((a,c) => a + Number(c.monthlyBilling || 0), 0);
+          const newQtySum = wonNew.reduce((a,c) => a + Number(c.quantity || 0), 0);
+          const avgNewRate = newQtySum > 0 ? Math.round(newBillSum / newQtySum) : 0;
+          const oldBillSum = wonOld.reduce((a,c) => a + Number(c.monthlyBilling || 0), 0);
+          const oldQtySum = wonOld.reduce((a,c) => a + Number(c.quantity || 0), 0);
+          const avgOldRate = oldQtySum > 0 ? Math.round(oldBillSum / oldQtySum) : 0;
+          const wonLaptops = wonDeals.filter(d => d.deviceCategory && d.deviceCategory.toLowerCase().includes('laptop'));
+          const lapQtySum = wonLaptops.reduce((a,c) => a + Number(c.quantity || 0), 0);
+          const lapBillSum = wonLaptops.reduce((a,c) => a + Number(c.monthlyBilling || 0), 0);
+          const avgLapRate = lapQtySum > 0 ? Math.round(lapBillSum / lapQtySum) : 0;
+          const wonWorkstations = wonDeals.filter(d => d.deviceCategory && (d.deviceCategory.includes('Work Station') || d.deviceCategory.includes('ZBook') || d.deviceCategory.includes('Mac Studio')));
+          const wsQtySum = wonWorkstations.reduce((a,c) => a + Number(c.quantity || 0), 0);
+          const wsBillSum = wonWorkstations.reduce((a,c) => a + Number(c.monthlyBilling || 0), 0);
+          const avgWsRate = wsQtySum > 0 ? Math.round(wsBillSum / wsQtySum) : 0;
+          const maxAvgRate = Math.max(avgNewRate, avgOldRate, avgWsRate, avgLapRate) || 1;
+
+          // Performers Calculations
+          const salesRepStats = {};
+          wonDeals.forEach(deal => {
+            const email = deal.email;
+            const name = email.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase());
+            if (!salesRepStats[email]) salesRepStats[email] = { name, wonVolume: 0, wonCount: 0, uniqueGroups: new Set() };
+            salesRepStats[email].wonVolume += Number(deal.contractValue || 0);
+            salesRepStats[email].wonCount += 1;
+            if (deal.groupCompany) salesRepStats[email].uniqueGroups.add(deal.groupCompany);
+          });
+          const repsArray = Object.values(salesRepStats).map(rep => ({ ...rep, uniqueGroupCount: rep.uniqueGroups.size }));
+          const topByVolume = [...repsArray].sort((a, b) => b.wonVolume - a.wonVolume);
+          const maxVolume = Math.max(...topByVolume.map(r => r.wonVolume), 1);
+          const allUniqueGroups = new Set(wonDeals.map(d => d.groupCompany).filter(Boolean));
+          const totalUniqueGroups = allUniqueGroups.size;
+
+          const topByCount = [...repsArray].sort((a, b) => b.wonCount - a.wonCount);
+          const maxCount = Math.max(...topByCount.map(r => r.wonCount), 1);
+
+          // Lists Data
+          const topPipelineDeals = [...pipelineDeals].sort((a, b) => b.contractValue - a.contractValue);
+          const topGrowthAccounts = [...wonDeals].filter(d => d.momGrowth > 0).sort((a, b) => b.momGrowth - a.momGrowth).slice(0, 5);
+          const topRiskAccounts = [...filteredData].filter(d => d.momGrowth < 0).sort((a, b) => a.momGrowth - b.momGrowth).slice(0, 5);
+          const topPayingDeals = [...wonDeals].sort((a, b) => b.monthlyBilling - a.monthlyBilling).slice(0, 5);
+          const bottomPayingDeals = [...wonDeals].sort((a, b) => a.monthlyBilling - b.monthlyBilling).slice(0, 5);
+          const topUnitRateDeals = [...wonDeals].sort((a, b) => b.pricePerDevice - a.pricePerDevice).slice(0, 5);
+          const bottomUnitRateDeals = [...wonDeals].sort((a, b) => a.pricePerDevice - b.pricePerDevice).slice(0, 5);
+
+          const formatINR = (value) => {
+            const num = Number(value);
+            if (isNaN(num)) return '₹0.00';
+            return '₹' + num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          };
+          const formatShortINR = (value) => {
+            const num = Number(value);
+            if (isNaN(num)) return '₹0.00';
+            if (num >= 10000000) return '₹' + (num / 10000000).toFixed(2) + ' Cr';
+            if (num >= 100000) return '₹' + (num / 100000).toFixed(2) + ' L';
+            if (num >= 1000) return '₹' + (num / 1000).toFixed(2) + ' k';
+            return '₹' + num.toFixed(2);
+          };
+
+          const formatCrINR = (value, decimalPlaces = 2) => {
+            const num = Number(value);
+            if (isNaN(num) || num === 0) return `₹0.${'0'.repeat(decimalPlaces)} Cr`;
+            return '₹' + (num / 10000000).toFixed(decimalPlaces) + ' Cr';
+          };
+
+          // --- DEBUG PANEL ---
+          // Shows raw API response for troubleshooting
+          const [showDebug, setShowDebug] = React.useState(false);
+
+          if (isLoadingData) {
+            return (
+              <div className="flex items-center justify-center h-full w-full min-h-[400px]">
+                <div className="text-center text-slate-500">
+                  <p>Loading Dashboard Data...</p>
+                </div>
+              </div>
+            )
+          }
+
+          return (
+            <div className="space-y-6 animate-in fade-in duration-500">
+              {/* DEBUG PANEL */}
+              <div className="bg-[#FFFDE7] border border-yellow-200 rounded-xl p-4 mb-4 text-xs text-slate-700">
+                <button className="bg-yellow-200 px-2 py-1 rounded text-yellow-900 font-bold mr-2" onClick={() => setShowDebug(!showDebug)}>
+                  {showDebug ? 'Hide' : 'Show'} API Debug
+                </button>
+                {showDebug && (
+                  <pre className="overflow-x-auto max-h-64 mt-2 text-[10px] bg-white border border-yellow-100 rounded p-2">
+                    {JSON.stringify(leasingData, null, 2)}
+                  </pre>
+                )}
+                <span className="ml-2 text-yellow-700">Raw API response from /api/contracts</span>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-800">Sales & Leasing Overview</h2>
+                  <p className="text-slate-500">Tracking Contracts, Devices, and Billing</p>
+                </div>
+                <div className="flex gap-2">
+                  <button className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50" onClick={() => {
+                    setIsLoadingData(true);
+                    fetch(SHEETS_API_URL + `&t=${Date.now()}`)
+                      .then(response => response.json())
+                      .then(apiData => {
+                        const data = sheetsToJson(apiData);
+                        setLeasingData(data);
+                        console.log('Sheet Sync: leasingData length after sync:', data.length);
+                        setIsLoadingData(false);
+                      })
+                      .catch(() => setIsLoadingData(false));
+                  }}>Sync Sheet</button>
+                  <button className="px-4 py-2 bg-[#4285F4] rounded-lg text-sm font-medium text-white hover:bg-blue-700 shadow-md shadow-blue-200" onClick={() => window.open('https://forms.gle/hRS1GEcaFw2VygoW8', '_blank')}>New Contract</button>
+                </div>
+              </div>
+
+              {/* FILTERS */}
+              <Card className="p-4">
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex items-center gap-2 text-slate-500 mr-2"><span className="font-semibold text-sm">Filters:</span></div>
+                  
+                  {/* Time Filter Tabs */}
+                  <div className="flex bg-[#E3F2FD] rounded-lg p-1">{['WTD', 'MTD', 'YTD', 'ALL'].map((time) => (<button key={time} onClick={() => setTimeFilter(time)} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${timeFilter === time ? 'bg-white text-[#4285F4] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{time}</button>))}</div>
+                  <div className="h-6 w-px bg-slate-200 hidden sm:block"></div>
+                  
+                  {/* Dropdowns */}
+                  <div className="relative">
+                    <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={repFilter} onChange={(e) => setRepFilter(e.target.value)}>{uniqueReps.map(r => <option key={r} value={r}>{r === 'All' ? 'All Sales Reps' : r}</option>)}</select>
+                  </div>
+                  
+                  <div className="relative">
+                    <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>{uniqueGroups.map(g => <option key={g} value={g}>{g === 'All' ? 'All Groups' : g}</option>)}</select>
+                  </div>
+
+                  <div className="relative">
+                    <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={conditionFilter} onChange={(e) => setConditionFilter(e.target.value)}>{uniqueConditions.map(c => <option key={c} value={c}>{c === 'All' ? 'All Conditions' : c}</option>)}</select>
+                  </div>
+                  
+                  <div className="relative">
+                    <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>{uniqueCategories.map(c => <option key={c} value={c}>{c === 'All' ? 'All Products' : c}</option>)}</select>
+                  </div>
+                  
+                  <div className="relative">
+                    <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={lockInFilter} onChange={(e) => setLockInFilter(e.target.value)}>{lockInOptions.map(l => <option key={l} value={l}>{l}</option>)}</select>
+                  </div>
+                  
+                  <div className="relative">
+                    <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={dealTypeFilter} onChange={(e) => setDealTypeFilter(e.target.value)}>{dealTypeOptions.map(d => <option key={d} value={d}>{d === 'All' ? 'All Deal Types' : d}</option>)}</select>
+                  </div>
+
+                  <div className="relative">
+                    <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={salesTypeFilter} onChange={(e) => setSalesTypeFilter(e.target.value)}>{salesTypeOptions.map(s => <option key={s} value={s}>{s}</option>)}</select>
+                  </div>
+                  
+                  {/* Reset Button */}
+                  {(repFilter !== 'All' || conditionFilter !== 'All' || categoryFilter !== 'All' || lockInFilter !== 'All' || timeFilter !== 'ALL' || dealTypeFilter !== 'All' || groupFilter !== 'All') && (
+                    <button onClick={() => { setRepFilter('All'); setConditionFilter('All'); setCategoryFilter('All'); setLockInFilter('All'); setTimeFilter('ALL'); setDealTypeFilter('All'); setGroupFilter('All'); }} className="text-xs text-red-500 hover:text-red-700 font-medium ml-auto">Reset Filters</button>
+                  )}
+                </div>
+              </Card>
+
+              {/* 1-4. FINANCE & REVENUE */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <KPICard title={<span className="text-2xl font-bold text-slate-800 uppercase tracking-wide">1. SIGNED CONTRACT</span>} value={<span className="text-4xl font-extrabold text-slate-800">{formatCrINR(totalContractValue)}</span>} subtext={<span className="text-base text-slate-500">Confirmed Orders (PO Received)</span>} colorClass="text-[#4285F4] bg-[#4285F4]" />
+                <Card className="p-6">
+                  <ChartHeader title="2. Hunters vs Farmers" />
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-end mb-2">
+                      <div className="text-left">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#4285F4]">HUNTING</span>
+                        <span className="text-2xl font-bold text-[#4285F4]">{formatCrINR(newClientRevenue)}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#EA4335]">FARMING</span>
+                        <span className="text-2xl font-bold text-[#EA4335]">{formatCrINR(existingClientRevenue)}</span>
+                      </div>
+                    </div>
+                    <div className="w-full h-8 flex rounded-full overflow-hidden bg-slate-100 relative mt-2">
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#4285F4]" style={{ width: `${leftPct}%` }}>
+                        {leftPct > 0 && `${leftPct.toFixed(0)}%`}
+                      </div>
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#EA4335]" style={{ width: `${rightPct}%` }}>
+                        {rightPct > 0 && `${rightPct.toFixed(0)}%`}
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+                <KPICard title={<span className="text-2xl font-bold text-slate-800 uppercase tracking-wide">3. NEW MONTHLY BILLING</span>} value={<span className="text-4xl font-extrabold text-slate-800">{formatCrINR(totalMonthlyBilling, 3)}</span>} subtext={<span className="text-base text-slate-500">Recurring monthly revenue</span>} colorClass="text-[#34A853] bg-[#34A853]" />
+                <Card className="p-6">
+                  <ChartHeader title="4. MONTHLY BILLING MIX" />
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-end mb-2">
+                      <div className="text-left">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#34A853]">HUNTING</span>
+                        <span className="text-2xl font-bold text-[#34A853]">{formatCrINR(newClientMRR, 3)}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#FBBC05]">FARMING</span>
+                        <span className="text-2xl font-bold text-[#FBBC05]">{formatCrINR(existingClientMRR, 3)}</span>
+                      </div>
+                    </div>
+                    <div className="w-full h-8 flex rounded-full overflow-hidden bg-slate-100 relative mt-2">
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#34A853]" style={{ width: `${leftMRRPct}%` }}>
+                        {leftMRRPct > 0 && `${leftMRRPct.toFixed(0)}%`}
+                      </div>
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#FBBC05]" style={{ width: `${rightMRRPct}%` }}>
+                        {rightMRRPct > 0 && `${rightMRRPct.toFixed(0)}%`}
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              </div>
+
+              {/* 5-8. OPERATIONS & PIPELINE */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <KPICard title={<span className="text-2xl font-bold text-slate-800 uppercase tracking-wide">5. PIPELINE VOLUME</span>} value={<span className="text-4xl font-extrabold text-slate-800">{formatCrINR(topPipelineDeals.reduce((a,c)=>a+Number(c.contractValue||0),0))}</span>} subtext={<span className="text-base text-slate-500">{topPipelineDeals.length} deals pending PO</span>} colorClass="text-[#FBBC05] bg-[#FBBC05]" />
+                <Card className="p-6">
+                  <ChartHeader title="6. Devices Ordered" />
+                  <div className="flex flex-col gap-2">
+                    <div className="w-full flex justify-center items-center my-2">
+                      <span className="text-3xl font-extrabold text-slate-800">{totalDevices}</span>
+                      <span className="ml-2 text-base text-slate-500 font-medium">Total Ordered</span>
+                    </div>
+                    <div className="flex justify-between items-end mb-2">
+                      <div className="text-left">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#34A853]">Delivered</span>
+                        <span className="text-2xl font-bold text-[#34A853]">{totalDelivered}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#FBBC05]">Not Yet</span>
+                        <span className="text-2xl font-bold text-[#FBBC05]">{pendingDeliveries}</span>
+                      </div>
+                    </div>
+                    <div className="w-full h-8 flex rounded-full overflow-hidden bg-slate-100 relative mt-2">
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#34A853]" style={{ width: `${totalDevices > 0 ? (totalDelivered / totalDevices) * 100 : 0}%` }}>
+                        {totalDevices > 0 && `${Math.round((totalDelivered / totalDevices) * 100)}%`}
+                      </div>
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#FBBC05]" style={{ width: `${totalDevices > 0 ? (pendingDeliveries / totalDevices) * 100 : 0}%` }}>
+                        {totalDevices > 0 && `${Math.round((pendingDeliveries / totalDevices) * 100)}%`}
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+                <Card className="p-6">
+                  <ChartHeader title="7. Delivered Delivered" />
+                  <div className="flex flex-col gap-2">
+                    <div className="w-full flex justify-center items-center my-2">
+                      <span className="text-3xl font-extrabold text-slate-800">{totalDelivered}</span>
+                      <span className="ml-2 text-base text-slate-500 font-medium">Total Delivered</span>
+                    </div>
+                    <div className="flex justify-between items-end mb-2">
+                      <div className="text-left">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#34A853]">FROM NEW STOCK</span>
+                        <span className="text-2xl font-bold text-[#34A853]">{newDeviceQty}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#EA4335]">FROM OLD STOCK</span>
+                        <span className="text-2xl font-bold text-[#EA4335]">{oldDeviceQty}</span>
+                      </div>
+                    </div>
+                    <div className="w-full h-8 flex rounded-full overflow-hidden bg-slate-100 relative mt-2">
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#34A853]" style={{ width: `${newDeviceQty + oldDeviceQty > 0 ? (newDeviceQty / (newDeviceQty + oldDeviceQty)) * 100 : 0}%` }}>
+                        {newDeviceQty + oldDeviceQty > 0 && `${Math.round((newDeviceQty / (newDeviceQty + oldDeviceQty)) * 100)}%`}
+                      </div>
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#EA4335]" style={{ width: `${newDeviceQty + oldDeviceQty > 0 ? (oldDeviceQty / (newDeviceQty + oldDeviceQty)) * 100 : 0}%` }}>
+                        {newDeviceQty + oldDeviceQty > 0 && `${Math.round((oldDeviceQty / (newDeviceQty + oldDeviceQty)) * 100)}%`}
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+                <Card className="p-6">
+                  <ChartHeader title="8. Pending Delivery" />
+                  <div className="flex flex-col gap-2">
+                    <div className="w-full flex justify-center items-center my-2">
+                      <span className="text-3xl font-extrabold text-slate-800">{totalPending}</span>
+                      <span className="ml-2 text-base text-slate-500 font-medium">Total Pending</span>
+                    </div>
+                    <div className="flex justify-between items-end mb-2">
+                      <div className="text-left">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#4285F4]">FROM NEW STOCK</span>
+                        <span className="text-2xl font-bold text-[#4285F4]">{newPendingQty}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#FBBC05]">FROM OLD STOCK</span>
+                        <span className="text-2xl font-bold text-[#FBBC05]">{oldPendingQty}</span>
+                      </div>
+                    </div>
+                    <div className="w-full h-8 flex rounded-full overflow-hidden bg-slate-100 relative mt-2">
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#4285F4]" style={{ width: `${newPendingQty + oldPendingQty > 0 ? (newPendingQty / (newPendingQty + oldPendingQty)) * 100 : 0}%` }}>
+                        {newPendingQty + oldPendingQty > 0 && `${Math.round((newPendingQty / (newPendingQty + oldPendingQty)) * 100)}%`}
+                      </div>
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#FBBC05]" style={{ width: `${newPendingQty + oldPendingQty > 0 ? (oldPendingQty / (newPendingQty + oldPendingQty)) * 100 : 0}%` }}>
+                        {newPendingQty + oldPendingQty > 0 && `${Math.round((oldPendingQty / (newPendingQty + oldPendingQty)) * 100)}%`}
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              </div>
+
+              {/* Lock-in Period Visual Sections - Improved Visuals */}
+              <Card className="p-6">
+                <ChartHeader title="Lock-in Period: Hunting vs Farming" />
+                <div className="space-y-6">
+                  {['Hunting', 'Farming'].map((type, idx) => {
+                    const deals = wonDeals.filter(d => (type === 'Hunting' ? d.clientType === 'New' : d.clientType !== 'New'));
+                    const lockinCounts = {};
+                    deals.forEach(d => {
+                      const lockin = d.lockInMonths || 'Unknown';
+                      lockinCounts[lockin] = (lockinCounts[lockin] || 0) + 1;
+                    });
+                    const total = Object.values(lockinCounts).reduce((a,b)=>a+b,0);
+                    const colors = ['bg-[#4285F4]','bg-[#34A853]','bg-[#EA4335]','bg-[#FBBC05]','bg-purple-500','bg-green-500','bg-orange-500','bg-slate-500','bg-pink-500','bg-indigo-500'];
+                    const lockinKeys = Object.keys(lockinCounts);
+                    return (
+                      <div key={type} className="mb-4">
+                        <div className="font-bold text-lg text-slate-800 mb-2">{type}</div>
+                        <div className="flex w-full h-10 rounded-full overflow-hidden bg-slate-100 shadow">
+                          {lockinKeys.map((lockin, i) => {
+                            const pct = total > 0 ? (lockinCounts[lockin] / total) * 100 : 0;
+                            return (
+                              <div key={lockin} className={`h-full flex items-center justify-center text-sm text-white font-bold ${colors[i % colors.length]}`} style={{ width: `${pct}%` }}>
+                                {pct > 8 && `${lockin} mo (${Math.round(pct)}%)`}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="flex gap-4 mt-3 flex-wrap justify-center">
+                          {lockinKeys.map((lockin, i) => (
+                            <div key={lockin} className="flex items-center gap-2">
+                              <span className={`inline-block w-4 h-4 rounded-full ${colors[i % colors.length]}`}></span>
+                              <span className="text-sm font-medium text-slate-700">{lockin} mo</span>
+                              <span className="text-sm text-slate-500">{lockinCounts[lockin]}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+
+              {/* 9-10. FLEET BREAKDOWN */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card className="p-6">
+                  <ChartHeader title="9. Total Fleet (Type)" />
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm text-slate-700">
+                      <thead className="bg-[#E3F2FD]">
+                        <tr>
+                          <th className="p-2 text-left">Category</th>
+                          <th className="p-2 text-right">New</th>
+                          <th className="p-2 text-right">Old</th>
+                          <th className="p-2 text-right">Total</th>
+                          <th className="p-2 text-right">% of Fleet</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          // Build a breakdown by category and condition
+                          const breakdown = {};
+                          filteredData.filter(d => d.poReceived === 'Yes').forEach(deal => {
+                            const cat = deal.deviceCategory || 'Other';
+                            const isNew = deal.condition === 'New';
+                            if (!breakdown[cat]) breakdown[cat] = { new: 0, old: 0 };
+                            if (isNew) breakdown[cat].new += Number(deal.delivered || 0) + Number(deal.pending || 0);
+                            else breakdown[cat].old += Number(deal.delivered || 0) + Number(deal.pending || 0);
+                          });
+                          const total = Object.values(breakdown).reduce((sum, catObj) => sum + catObj.new + catObj.old, 0);
+                          const totalNew = Object.values(breakdown).reduce((sum, catObj) => sum + catObj.new, 0);
+                          const totalOld = Object.values(breakdown).reduce((sum, catObj) => sum + catObj.old, 0);
+                          return [
+                            ...Object.entries(breakdown).map(([cat, condObj]) => {
+                              const rowTotal = condObj.new + condObj.old;
+                              const pct = total > 0 ? (rowTotal / total) * 100 : 0;
+                              return (
+                                <tr key={cat} className="border-b border-slate-100">
+                                  <td className="p-2 font-medium">{cat}</td>
+                                  <td className="p-2 text-right">{condObj.new}</td>
+                                  <td className="p-2 text-right">{condObj.old}</td>
+                                  <td className="p-2 text-right">{rowTotal}</td>
+                                  <td className="p-2 text-right">{pct.toFixed(1)}%</td>
+                                </tr>
+                              );
+                            }),
+                            <tr key="total" className="font-bold bg-[#E3F2FD]">
+                              <td className="p-2">Total</td>
+                              <td className="p-2 text-right">{totalNew}</td>
+                              <td className="p-2 text-right">{totalOld}</td>
+                              <td className="p-2 text-right">{total}</td>
+                              <td className="p-2 text-right">100%</td>
+                            </tr>
+                          ];
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              </div>
+
+              {/* 11-12. AVERAGE RENTAL RATES */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card className="p-6">
+                  <ChartHeader title="10. Avg Rental Rate (New vs Old by Category)" />
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm text-slate-700">
+                      <thead className="bg-[#E3F2FD]">
+                        <tr>
+                          <th className="p-2 text-left">Category</th>
+                          <th className="p-2 text-right">New Avg Rate</th>
+                          <th className="p-2 text-right">Old Avg Rate</th>
+                          <th className="p-2 text-right">% Discounted</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          // Build a breakdown by category and condition for avg rental rate
+                          const breakdown = {};
+                          wonDeals.forEach(deal => {
+                            const cat = deal.deviceCategory || 'Other';
+                            const isNew = deal.condition === 'New';
+                            if (!breakdown[cat]) breakdown[cat] = { newBill: 0, newQty: 0, oldBill: 0, oldQty: 0 };
+                            if (isNew) {
+                              breakdown[cat].newBill += Number(deal.monthlyBilling || 0);
+                              breakdown[cat].newQty += Number(deal.quantity || 0);
+                            } else {
+                              breakdown[cat].oldBill += Number(deal.monthlyBilling || 0);
+                              breakdown[cat].oldQty += Number(deal.quantity || 0);
+                            }
+                          });
+                          return Object.entries(breakdown).map(([cat, vals]) => {
+                            const avgNew = vals.newQty > 0 ? Math.round(vals.newBill / vals.newQty) : 0;
+                            const avgOld = vals.oldQty > 0 ? Math.round(vals.oldBill / vals.oldQty) : 0;
+                            const pctDiscounted = (avgNew > 0 && avgOld > 0) ? (((avgNew - avgOld) / avgNew) * 100).toFixed(1) : '-';
+                            return (
+                              <tr key={cat} className="border-b border-slate-100">
+                                <td className="p-2 font-medium">{cat}</td>
+                                <td className="p-2 text-right">{avgNew > 0 ? `₹${avgNew}` : '-'}</td>
+                                <td className="p-2 text-right">{avgOld > 0 ? `₹${avgOld}` : '-'}</td>
+                                <td className="p-2 text-right">{pctDiscounted !== '-' ? `${pctDiscounted}%` : '-'}</td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+                <Card className="p-6">
+                  <ChartHeader title="11. Avg Rental Rate (Device Type Breakdown)" />
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm text-slate-700">
+                      <thead className="bg-[#E3F2FD]">
+                        <tr>
+                          <th className="p-2 text-left">Category</th>
+                          <th className="p-2 text-right">New Avg Rate</th>
+                          <th className="p-2 text-right">Old Avg Rate</th>
+                          <th className="p-2 text-right"># Devices</th>
+                          <th className="p-2 text-right">Revenue</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          // Build a breakdown by category and condition for avg rental rate
+                          const breakdown = {};
+                          wonDeals.forEach(deal => {
+                            const cat = deal.deviceCategory || 'Other';
+                            const isNew = deal.condition === 'New';
+                            if (!breakdown[cat]) breakdown[cat] = { newBill: 0, newQty: 0, oldBill: 0, oldQty: 0 };
+                            if (isNew) {
+                              breakdown[cat].newBill += Number(deal.monthlyBilling || 0);
+                              breakdown[cat].newQty += Number(deal.quantity || 0);
+                            } else {
+                              breakdown[cat].oldBill += Number(deal.monthlyBilling || 0);
+                              breakdown[cat].oldQty += Number(deal.quantity || 0);
+                            }
+                          });
+                          const totalNewQty = Object.values(breakdown).reduce((sum, vals) => sum + vals.newQty, 0);
+                          const totalOldQty = Object.values(breakdown).reduce((sum, vals) => sum + vals.oldQty, 0);
+                          const totalNewBill = Object.values(breakdown).reduce((sum, vals) => sum + vals.newBill, 0);
+                          const totalOldBill = Object.values(breakdown).reduce((sum, vals) => sum + vals.oldBill, 0);
+                          const avgNew = totalNewQty > 0 ? Math.round(totalNewBill / totalNewQty) : 0;
+                          const avgOld = totalOldQty > 0 ? Math.round(totalOldBill / totalOldQty) : 0;
+                          const totalQty = totalNewQty + totalOldQty;
+                          const totalRevenue = totalNewBill + totalOldBill;
+                          return [
+                            ...Object.entries(breakdown).map(([cat, vals]) => {
+                              const avgNewCat = vals.newQty > 0 ? Math.round(vals.newBill / vals.newQty) : 0;
+                              const avgOldCat = vals.oldQty > 0 ? Math.round(vals.oldBill / vals.oldQty) : 0;
+                              const catQty = vals.newQty + vals.oldQty;
+                              const catRevenue = vals.newBill + vals.oldBill;
+                              return (
+                                <tr key={cat} className="border-b border-slate-100">
+                                  <td className="p-2 font-medium">{cat}</td>
+                                  <td className="p-2 text-right">{avgNewCat > 0 ? `₹${avgNewCat}` : '-'}</td>
+                                  <td className="p-2 text-right">{avgOldCat > 0 ? `₹${avgOldCat}` : '-'}</td>
+                                  <td className="p-2 text-right">{catQty}</td>
+                                  <td className="p-2 text-right">{catRevenue > 0 ? `₹${catRevenue.toLocaleString('en-IN')}` : '-'}</td>
+                                </tr>
+                              );
+                            }),
+                            <tr key="total" className="font-bold bg-[#E3F2FD]">
+                              <td className="p-2">Total</td>
+                              <td className="p-2 text-right">{avgNew > 0 ? `₹${avgNew}` : '-'}</td>
+                              <td className="p-2 text-right">{avgOld > 0 ? `₹${avgOld}` : '-'}</td>
+                              <td className="p-2 text-right">{totalQty}</td>
+                              <td className="p-2 text-right">{totalRevenue > 0 ? `₹${totalRevenue.toLocaleString('en-IN')}` : '-'}</td>
+                            </tr>
+                          ];
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              </div>
+
+              {/* 12. PERFORMERS */}
+              <Card className="p-6">
+                <ChartHeader title="12. Top Performers" />
+                <div className="overflow-x-auto">
+                  {(() => {
+                    // Correct monthly value calculation per rep: sum monthlyBilling for deals won by each rep
+                    const monthlyStats = {};
+                    wonDeals.forEach(deal => {
+                      const repEmail = deal.email;
+                      if (!monthlyStats[repEmail]) monthlyStats[repEmail] = 0;
+                      monthlyStats[repEmail] += Number(deal.monthlyBilling || 0);
+                    });
+                    const sortedReps = [...topByVolume].sort((a, b) => {
+                      let aVal, bVal;
+                      if (sortCol === 'monthlyValue') {
+                        aVal = monthlyStats[a.email] || monthlyStats[Object.keys(monthlyStats).find(e => a.name === (e.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase())))] || 0;
+                        bVal = monthlyStats[b.email] || monthlyStats[Object.keys(monthlyStats).find(e => b.name === (e.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase())))] || 0;
+                      } else {
+                        aVal = a[sortCol];
+                        bVal = b[sortCol];
+                      }
+                      if (sortDir === 'asc') return aVal > bVal ? 1 : -1;
+                      else return aVal < bVal ? -1 : 1;
+                    });
+                    const totalContractValue = sortedReps.reduce((sum, rep) => sum + rep.wonVolume, 0);
+                    return (
+                      <table className="min-w-full text-sm text-slate-700">
+                        <thead className="bg-[#E3F2FD]">
+                          <tr>
+                            <th className="p-2 text-left cursor-pointer" onClick={() => handleSort('rank')}>Rank</th>
+                            <th className="p-2 text-left cursor-pointer" onClick={() => handleSort('name')}>Sales Rep</th>
+                            <th className="p-2 text-right cursor-pointer" onClick={() => handleSort('wonVolume')}>Contract Value</th>
+                            <th className="p-2 text-right cursor-pointer" onClick={() => handleSort('monthlyValue')}>Monthly Value</th>
+                            <th className="p-2 text-right cursor-pointer" onClick={() => handleSort('wonCount')}># Orders</th>
+                            <th className="p-2 text-right cursor-pointer" onClick={() => handleSort('uniqueGroupCount')}># Unique Groups</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortedReps.map((rep, idx) => (
+                            <tr key={rep.name} className="border-b border-slate-100">
+                              <td className="p-2 font-medium">{idx + 1}</td>
+                              <td className="p-2 font-medium">{rep.name}</td>
+                              <td className="p-2 text-right">{formatShortINR(rep.wonVolume)}</td>
+                              <td className="p-2 text-right">{formatShortINR(monthlyStats[rep.email] || monthlyStats[Object.keys(monthlyStats).find(e => rep.name === (e.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase())))] || 0)}</td>
+                              <td className="p-2 text-right">{rep.wonCount}</td>
+                              <td className="p-2 text-right">{rep.uniqueGroupCount}</td>
+                            </tr>
+                          ))}
+                          <tr key="total" className="font-bold bg-[#E3F2FD]">
+                            <td className="p-2">Total</td>
+                            <td className="p-2"></td>
+                            <td className="p-2 text-right">{formatShortINR(totalContractValue)}</td>
+                            <td className="p-2 text-right">{formatShortINR(Object.values(monthlyStats).reduce((a,b)=>a+b,0))}</td>
+                            <td className="p-2 text-right">{sortedReps.reduce((sum, rep) => sum + rep.wonCount, 0)}</td>
+                            <td className="p-2 text-right">{totalUniqueGroups}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    );
+                  })()}
+                </div>
+              </Card>
+
+              {/* 13-15. HEALTH & PIPELINE */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <Card className="p-6">
+                  <ChartHeader title="13. Top Pipeline (Pending PO)" />
+                  <div className="space-y-4">
+                    {topPipelineDeals.map((deal, idx) => (
+                      <div key={idx} className="p-3 bg-[#FFFDE7] rounded-lg border border-slate-100">
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="overflow-hidden">
+                            <p className="text-sm font-bold text-slate-800 truncate">{deal.client}</p>
+                            <p className="text-xs text-slate-500 truncate">{deal.email.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase())}</p>
+                          </div>
+                          <div className="text-right whitespace-nowrap ml-2">
+                            <p className="text-sm font-bold text-slate-800">{formatShortINR(deal.contractValue)}</p>
+                          </div>
+                        </div>
+                        {deal.comment && <div className="flex items-center gap-1 text-[10px] text-slate-500 bg-white p-1.5 rounded border border-slate-200"> {deal.comment}</div>}
+                      </div>
+                    ))}
+                    {topPipelineDeals.length === 0 && <p className="text-sm text-slate-400 text-center py-4">Pipeline is empty.</p>}
+                  </div>
+                </Card>
+              </div>
+
+              {/* 16-17. HIGHEST / LOWEST VALUE DEALS */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card className="p-6">
+                  <ChartHeader title="14. Top 5 Highest Value Deals (Monthly)" />
+                  <div className="space-y-4">
+                    {topPayingDeals.map((deal, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-3 bg-[#E8F5E9] rounded-lg border border-green-100">
+                        <div>
+                          <p className="text-sm font-bold text-[#1B5E20]">{deal.client}</p>
+                          <p className="text-xs text-[#388E3C]">{deal.brandModel} • {deal.quantity} Units</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-[#388E3C]">{formatINR(deal.monthlyBilling)}</p>
+                          <p className="text-[10px] text-[#388E3C] font-medium">/ month</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+                <Card className="p-6">
+                  <ChartHeader title="15. Top 5 Lowest Value Deals (Monthly)" />
+                  <div className="space-y-4">
+                    {bottomPayingDeals.map((deal, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-3 bg-[#FFFDE7] rounded-lg border border-orange-100">
+                        <div>
+                          <p className="text-sm font-bold text-[#F57C00]">{deal.client}</p>
+                          <p className="text-xs text-[#FBC02D]">{deal.brandModel} • {deal.quantity} Units</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-[#FBC02D]">{formatINR(deal.monthlyBilling)}</p>
+                          <p className="text-[10px] text-[#FBC02D] font-medium">/ month</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              </div>
+
+              {/* 18-19. UNIT PRICE ANALYSIS */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card className="p-6">
+                  <ChartHeader title="16. Highest Unit Price Deals (Price/Device)" />
+                  <div className="space-y-4">
+                    {topUnitRateDeals.map((deal, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-3 bg-[#E3F2FD] rounded-lg border border-blue-100">
+                        <div>
+                          <p className="text-sm font-bold text-[#0D47A1]">{deal.client}</p>
+                          <p className="text-xs text-[#1976D2]">{deal.brandModel} • {deal.quantity} Units</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-[#1976D2]">{formatINR(deal.pricePerDevice)} <span className="text-[10px] font-normal text-[#1976D2]">/unit</span></p>
+                          <p className="text-[10px] text-slate-400 font-medium">Total: {formatShortINR(deal.monthlyBilling)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+                <Card className="p-6">
+                  <ChartHeader title="17. Lowest Unit Price Deals (Price/Device)" />
+                  <div className="space-y-4">
+                    {bottomUnitRateDeals.map((deal, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-3 bg-[#FFEBEE] rounded-lg border border-red-100">
+                        <div>
+                          <p className="text-sm font-bold text-[#B71C1C]">{deal.client}</p>
+                          <p className="text-xs text-[#E53935]">{deal.brandModel} • {deal.quantity} Units</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-[#E53935]">{formatINR(deal.pricePerDevice)} <span className="text-[10px] font-normal text-[#E53935]">/unit</span></p>
+                          <p className="text-[10px] text-slate-400 font-medium">Total: {formatShortINR(deal.monthlyBilling)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              </div>
+
+              {/* 18. MAIN TABLE */}
+              <Card className="overflow-hidden">
+                <div className="p-6 border-b border-slate-100 flex justify-between items-center"><ChartHeader title="18. Recent Contracts & Device Status" /></div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm text-slate-600">
+                    <thead className="bg-[#E3F2FD] text-slate-700 uppercase font-bold text-xs"><tr><th className="p-4 min-w-[200px]">Client</th><th className="p-4">Group</th><th className="p-4 min-w-[250px]">Device Specs</th><th className="p-4 text-center">Qty</th><th className="p-4 text-right">Monthly (Ex. GST)</th><th className="p-4 text-right">Contract Val</th><th className="p-4">Delivery Date</th><th className="p-4">Status</th></tr></thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredData.map((deal, idx) => (
+                        <tr key={deal.id || `${deal.client}-${deal.deliveryDate}-${idx}` } className="hover:bg-[#E3F2FD] transition-colors">
+                          <td className="p-4"><div className="font-bold text-slate-800">{deal.client}</div><div className="text-xs text-slate-500 mt-1 flex items-center gap-1">{deal.clientType === 'New' ? <span className="text-[#4285F4] font-semibold">New</span> : 'Existing'} • {deal.poReceived === 'Yes' ? <span className="text-[#34A853] font-medium">PO Recvd</span> : <span className="text-[#FBBC05] font-medium">No PO</span>}<span className="ml-1 text-slate-400">• {deal.dealType}</span></div></td>
+                          <td className="p-4 text-slate-600 font-medium">{deal.groupCompany || '-'}</td>
+                          <td className="p-4">
+                            <div className="font-medium text-slate-800">{deal.brandModel} ({deal.deviceCategory})</div>
+                            <div className="text-xs text-slate-500 mt-1 flex flex-wrap gap-2">
+                              {deal.specs?.processor && <span><b>CPU:</b> {deal.specs.processor}</span>}
+                              {deal.specs?.gen && <span><b>Gen:</b> {deal.specs.gen}</span>}
+                              {deal.specs?.ram && <span><b>RAM:</b> {deal.specs.ram}</span>}
+                              {deal.specs?.storage && <span><b>Storage:</b> {deal.specs.storage}</span>}
+                              {deal.specs?.graphics && <span><b>GC:</b> {deal.specs.graphics}</span>}
+                              {deal.specs?.os && <span><b>OS:</b> {deal.specs.os}</span>}
+                              {deal.specs?.screen && <span><b>Screen:</b> {deal.specs.screen}</span>}
+                            </div>
+                            <div className="text-xs text-slate-400 mt-0.5">{deal.condition} • {deal.lockInMonths}mo Lock-in</div>
+                          </td>
+                          <td className="p-4 text-center"><div className="font-bold text-slate-800 text-lg">{deal.quantity}</div><div className="text-[10px] text-slate-400 flex justify-center gap-1"><span title="Delivered" className="text-[#34A853]">{deal.delivered} D</span> / <span title="Pending" className="text-[#FBBC05]">{deal.pending} P</span></div></td>
+                          <td className="p-4 text-right font-medium text-[#34A853]">{formatINR(deal.monthlyBilling)}</td>
+                          <td className="p-4 text-right font-medium text-slate-800">{formatINR(deal.contractValue)}</td>
+                          <td className="p-4 text-slate-500 font-medium">{deal.deliveryDate}</td>
+                          <td className="p-4">{deal.pending > 0 ? (<span className="inline-flex items-center gap-1 bg-[#FBBC05] text-[#FBBC05] px-2 py-1 rounded-full text-xs font-bold"> Pending</span>) : (<span className="inline-flex items-center gap-1 bg-[#34A853] text-[#34A853] px-2 py-1 rounded-full text-xs font-bold"> Delivered</span>)}</td>
+                        </tr>
+                      ))}
+                      {filteredData.length === 0 && (<tr><td colSpan={8} className="p-8 text-center text-slate-400">No contracts match your current filters. Try selecting "All" for time period.</td></tr>)}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+
+              {/* MOBILE FILTER FOOTER */}
+              <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 lg:hidden">
+                <button
+                  className="bg-[#4285F4] text-white px-6 py-2 rounded-full shadow-lg font-bold text-base flex items-center gap-2"
+                  onClick={() => setShowMobileFilters(!showMobileFilters)}
+                >
+                  <i data-lucide="filter" className="w-5 h-5"></i>
+                  Filters
+                </button>
+                {showMobileFilters && (
+                  <div className="mt-2 bg-white rounded-xl shadow-xl p-4 border border-slate-200 w-[90vw] max-w-md mx-auto">
+                    <div className="flex flex-wrap items-center gap-4">
+                      {/* Time Filter Tabs */}
+                      <div className="flex bg-[#E3F2FD] rounded-lg p-1">{['WTD', 'MTD', 'YTD', 'ALL'].map((time) => (<button key={time} onClick={() => setTimeFilter(time)} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${timeFilter === time ? 'bg-white text-[#4285F4] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{time}</button>))}</div>
+                      {/* Dropdowns */}
+                      <div className="relative">
+                        <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={repFilter} onChange={(e) => setRepFilter(e.target.value)}>{uniqueReps.map(r => <option key={r} value={r}>{r === 'All' ? 'All Sales Reps' : r}</option>)}</select>
+                      </div>
+                      <div className="relative">
+                        <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>{uniqueGroups.map(g => <option key={g} value={g}>{g === 'All' ? 'All Groups' : g}</option>)}</select>
+                      </div>
+                      <div className="relative">
+                        <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={conditionFilter} onChange={(e) => setConditionFilter(e.target.value)}>{uniqueConditions.map(c => <option key={c} value={c}>{c === 'All' ? 'All Conditions' : c}</option>)}</select>
+                      </div>
+                      <div className="relative">
+                        <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>{uniqueCategories.map(c => <option key={c} value={c}>{c === 'All' ? 'All Products' : c}</option>)}</select>
+                      </div>
+                      <div className="relative">
+                        <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={lockInFilter} onChange={(e) => setLockInFilter(e.target.value)}>{lockInOptions.map(l => <option key={l} value={l}>{l}</option>)}</select>
+                      </div>
+                      <div className="relative">
+                        <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={dealTypeFilter} onChange={(e) => setDealTypeFilter(e.target.value)}>{dealTypeOptions.map(d => <option key={d} value={d}>{d === 'All' ? 'All Deal Types' : d}</option>)}</select>
+                      </div>
+                      <div className="relative">
+                        <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={salesTypeFilter} onChange={(e) => setSalesTypeFilter(e.target.value)}>{salesTypeOptions.map(s => <option key={s} value={s}>{s}</option>)}</select>
+                      </div>
+                    </div>
+                    <button onClick={() => { setRepFilter('All'); setConditionFilter('All'); setCategoryFilter('All'); setLockInFilter('All'); setTimeFilter('ALL'); setDealTypeFilter('All'); setGroupFilter('All'); setSalesTypeFilter('All Sales Types'); }} className="text-xs text-red-500 hover:text-red-700 font-medium mt-4">Reset Filters</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        // --- MAIN LAYOUT ---
+
+        const App = () => {
+          const [isLoggedIn, setIsLoggedIn] = React.useState(false);
+          const [activeTab, setActiveTab] = React.useState('sales');
+          const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+          const [loading, setLoading] = React.useState(false);
+
+          // Login Handler (Simulated)
+          const handleLogin = (e) => {
+            e.preventDefault();
+            setLoading(true);
+            // Simulate network request
+            setTimeout(() => {
+              setLoading(false);
+              setIsLoggedIn(true);
+            }, 1000);
+          };
+
+          const menuItems = [
+            { id: 'sales', label: 'Sales & Leasing' },
+            { id: 'collections', label: 'Collections' },
+            { id: 'pl', label: 'Profit & Loss' },
+            { id: 'hr', label: 'Human Resources' },
+            { id: 'admin', label: 'Admin Settings' },
+          ];
+
+          // Remove company name and portal title from sign-in page
+          // Use fixed username and password for login: kkbaldwa@cpromptsolutions.in / KK@1234
+          if (!isLoggedIn) {
+            return (
+              <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+                <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl overflow-hidden">
+                  <div className="p-8">
+                    <div className="flex justify-center mb-8">
+                      <img src="https://www.cpromptsolutions.in/assets/logo-ChA6Lvu7.gif" alt="C Prompt Solutions Logo" className="w-32 h-auto object-contain" />
+                    </div>
+                    <div className="text-center text-2xl font-bold text-slate-800 mb-6">Executive Reports</div>
+                    <form onSubmit={e => {
+                      e.preventDefault();
+                      setLoading(true);
+                      const email = e.target.email.value;
+                      const password = e.target.password.value;
+                      setTimeout(() => {
+                        setLoading(false);
+                        if (email === 'kkbaldwa@cpromptsolutions.in' && password === 'KK@1234') {
+                          setIsLoggedIn(true);
+                        } else {
+                          alert('Invalid credentials');
+                        }
+                      }, 1000);
+                    }} className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                        <input type="email" name="email" required className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#4285F4] text-slate-800" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                        <input type="password" name="password" required className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#4285F4] text-slate-800" />
+                      </div>
+                      <button type="submit" className="w-full py-2 bg-[#4285F4] text-white rounded-lg font-bold text-lg hover:bg-blue-700 transition-all disabled:opacity-50" disabled={loading}>
+                        {loading ? 'Loading...' : 'Login'}
+                      </button>
+                    </form>
+                  </div>
+                  <div className="bg-slate-50 p-4 text-center text-xs text-slate-400">
+                    &copy; 2025 ExecutiveView. All rights reserved.
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="min-h-screen bg-slate-50 flex">
+              {/* Sidebar - Desktop */}
+              <aside className="hidden lg:flex flex-col w-64 bg-slate-900 text-white fixed h-full z-10">
+                <div className="p-6 flex items-center gap-3 border-b border-slate-800">
+                  <img src="https://www.cpromptsolutions.in/assets/logo-ChA6Lvu7.gif" alt="C Prompt Solutions Logo" className="w-8 h-8 object-contain" />
+                  <span className="font-bold text-lg tracking-tight">{COMPANY_NAME}</span>
+                </div>
+                <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-4 mt-4">Departments</div>
+                  {menuItems.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id)}
+                      className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === item.id ? 'bg-[#4285F4] text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </nav>
+
+                <div className="p-4 border-t border-slate-800">
+                  <button
+                    onClick={() => setIsLoggedIn(false)}
+                    className="w-full flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-slate-800 text-slate-300 hover:bg-[#EA4335] hover:text-white transition-all"
+                  >
+                    Logout
+                  </button>
+                </div>
+              </aside>
+
+              {/* Mobile Header */}
+              <div className="lg:hidden fixed top-0 left-0 right-0 bg-slate-900 text-white z-20 px-4 py-3 flex items-center justify-between shadow-md">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-lg tracking-tight">{COMPANY_NAME}</span>
+                </div>
+                <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+                  {isMobileMenuOpen ? 'Close' : 'Menu'}
+                </button>
+              </div>
+
+              {/* Mobile Menu Overlay */}
+              {isMobileMenuOpen && (
+                <div className="lg:hidden fixed inset-0 bg-slate-900 z-10 pt-16">
+                  <div className="flex flex-col gap-2 p-4">
+                    {menuItems.map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => { setActiveTab(item.id); setIsMobileMenuOpen(false); }}
+                        className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === item.id ? 'bg-[#4285F4] text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => { setIsLoggedIn(false); setIsMobileMenuOpen(false); }}
+                      className="w-full flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-slate-800 text-slate-300 hover:bg-[#EA4335] hover:text-white transition-all mt-4"
+                    >
+                      Logout
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Main Content Area */}
+              <main className="flex-1 lg:ml-64 p-4 lg:p-8 pt-20 lg:pt-8 overflow-y-auto">
+                {activeTab === 'sales' && <SalesView />}
+                {activeTab === 'collections' && <PlaceholderView title="Collections" />}
+                {activeTab === 'pl' && <PlaceholderView title="Profit & Loss" />}
+                {activeTab === 'hr' && <PlaceholderView title="Human Resources" />}
+                {activeTab === 'admin' && <PlaceholderView title="Admin Settings" />}
+              </main>
+            </div>
+          );
+        };
+
+        // Render the App component
+        const container = document.getElementById('root');
+        ReactDOM.createRoot(container).render(<App />);
+        lucide.createIcons();
+
+    </script>
+</body>
+</html>
