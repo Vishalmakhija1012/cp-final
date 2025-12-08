@@ -195,22 +195,39 @@
           const [leasingData, setLeasingData] = React.useState([]);
           const [isLoadingData, setIsLoadingData] = React.useState(true);
           const [timeFilter, setTimeFilter] = React.useState('ALL');
-          const [repFilter, setRepFilter] = React.useState('All');
+          const [repFilter, setRepFilter] = React.useState(['All']);
           const [conditionFilter, setConditionFilter] = React.useState('All');
-          const [categoryFilter, setCategoryFilter] = React.useState('All');
-          const [lockInFilter, setLockInFilter] = React.useState('All');
+          const [categoryFilter, setCategoryFilter] = React.useState(['All']);
+          const [lockInFilter, setLockInFilter] = React.useState(['All Lockins']);
           const [dealTypeFilter, setDealTypeFilter] = React.useState('All');
-          const [groupFilter, setGroupFilter] = React.useState('All');
+          const [groupFilter, setGroupFilter] = React.useState(['All']);
           const [salesTypeFilter, setSalesTypeFilter] = React.useState('All Sales Types');
+          const [deliveryStatusFilter, setDeliveryStatusFilter] = React.useState(['Ordered', 'Delivered', 'Pending']);
           const [showMobileFilters, setShowMobileFilters] = React.useState(false);
+          const [monthFilter, setMonthFilter] = React.useState(['All']);
+          const [tablePoFilter, setTablePoFilter] = React.useState('All'); // 'All', 'PO Received', 'Proposal'
 
           // Table sorting state and handler for Top Performers
-          const [sortCol, setSortCol] = React.useState('wonVolume');
+          const [sortCol, setSortCol] = React.useState('contractValue');
           const [sortDir, setSortDir] = React.useState('desc');
           const handleSort = (col) => {
             if (sortCol === col) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
             else { setSortCol(col); setSortDir('desc'); }
           };
+
+          // --- POPOVER STATES & SEARCH FOR FILTERS ---
+          const [showRepPopover, setShowRepPopover] = React.useState(false);
+          const [repSearch, setRepSearch] = React.useState("");
+          const [showLockInPopover, setShowLockInPopover] = React.useState(false);
+          const [lockInSearch, setLockInSearch] = React.useState("");
+          const [showCategoryPopover, setShowCategoryPopover] = React.useState(false);
+          const [categorySearch, setCategorySearch] = React.useState("");
+          const [showGroupPopover, setShowGroupPopover] = React.useState(false);
+          const [groupSearch, setGroupSearch] = React.useState("");
+          const [showDeliveryStatusPopover, setShowDeliveryStatusPopover] = React.useState(false);
+          const [deliveryStatusSearch, setDeliveryStatusSearch] = React.useState("");
+          const [showMonthPopover, setShowMonthPopover] = React.useState(false);
+          const [monthSearch, setMonthSearch] = React.useState("");
 
           // --- DATA FETCHING FROM BACKEND API ---
           React.useEffect(() => {
@@ -238,76 +255,159 @@
           const lockInOptions = ['All Lockins', '<= 1 Month', '3 Months', '6 Months', '12 Months', '24 Months', '36 Months'];
           const dealTypeOptions = ['All', 'Leasing', 'Renting'];
           const salesTypeOptions = ['All Sales Types', 'Hunting', 'Farming'];
+          const deliveryStatusOptions = ['Ordered', 'Delivered', 'Pending'];
 
-          const filteredData = React.useMemo(() => {
-            if (!leasingData.length) return [];
-            const now = new Date();
-            const currentYear = now.getFullYear();
-            const currentMonth = now.getMonth();
-            
-            // Function to calculate week of the year
-            const getWeek = (d) => {
-              const date = new Date(d.getTime());
-              date.setHours(0, 0, 0, 0);
-              date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
-              const week1 = new Date(date.getFullYear(), 0, 4);
-              return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
-            }
-            const currentWeek = getWeek(now);
-
-            return leasingData.filter(deal => {
-              const dealDate = new Date(deal.timestamp);
-              
-              // Time Filter
-              if (timeFilter === 'YTD' && dealDate.getFullYear() !== currentYear) return false;
-              if (timeFilter === 'MTD' && (dealDate.getMonth() !== currentMonth || dealDate.getFullYear() !== currentYear)) return false;
-              if (timeFilter === 'WTD' && (getWeek(dealDate) !== currentWeek || dealDate.getFullYear() !== currentYear)) return false;
-              
-              // Sales Rep Filter
-              if (repFilter !== 'All') {
-                const dealRepName = deal.email.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase());
-                if (dealRepName !== repFilter) return false;
-              }
-              
-              // Condition Filter
-              if (conditionFilter !== 'All') {
-                const isNew = deal.condition === 'New';
-                if (conditionFilter === 'New' && !isNew) return false;
-                if (conditionFilter === 'Old/Refurbished' && isNew) return false;
-              }
-              
-              // Category Filter
-              if (categoryFilter !== 'All' && deal.deviceCategory !== categoryFilter) return false;
-              
-              // Deal Type Filter
-              if (dealTypeFilter !== 'All' && deal.dealType !== dealTypeFilter) return false;
-              
-              // Lock-in Filter
-              if (lockInFilter !== 'All Lockins') {
-                const months = Number(deal.lockInMonths);
-                if (lockInFilter === '<= 1 Month' && months > 1) return false;
-                if (lockInFilter === '3 Months' && months !== 3) return false;
-                if (lockInFilter === '6 Months' && months !== 6) return false;
-                if (lockInFilter === '12 Months' && months !== 12) return false;
-                if (lockInFilter === '24 Months' && months !== 24) return false;
-                if (lockInFilter === '36 Months' && months !== 36) return false;
-              }
-              
-              // Group Filter
-              if (groupFilter !== 'All') {
-                const group = deal.groupCompany || 'Other';
-                if (group !== groupFilter) return false;
-              }
-
-              // Sales Type Filter
-              if (salesTypeFilter && salesTypeFilter !== 'All Sales Types') {
-                if (salesTypeFilter === 'Hunting' && deal.clientType !== 'New') return false;
-                if (salesTypeFilter === 'Farming' && deal.clientType !== 'Existing') return false;
-              }
-
-              return true;
+          // Helper: Get unique, valid, sorted months from data
+          const getUniqueMonths = (data) => {
+            const months = data.map(d => d.month || d.deliveryMonth || '').filter(m => m);
+            const uniqueMonths = Array.from(new Set(months)).sort((a, b) => {
+              const da = new Date('01 ' + a);
+              const db = new Date('01 ' + b);
+              return da - db;
             });
-          }, [leasingData, timeFilter, repFilter, conditionFilter, categoryFilter, lockInFilter, dealTypeFilter, groupFilter, salesTypeFilter]);
+            return ['All', ...uniqueMonths];
+          };
+
+          const [uniqueMonths, setUniqueMonths] = React.useState(getUniqueMonths(leasingData));
+          React.useEffect(() => {
+            setUniqueMonths(getUniqueMonths(leasingData));
+          }, [leasingData]);
+
+          // Filtered reps for search
+          const filteredReps = uniqueReps.filter(r => r.toLowerCase().includes(repSearch.toLowerCase()) || r === "All");
+          const filteredMonths = uniqueMonths.filter(m => m.toLowerCase().includes(monthSearch.toLowerCase()) || m === "All");
+
+          // Utility: robust normalization for matching
+          const norm = v => (v || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
+          // Special normalization for lockin values (e.g., '12', '12 mo', '12 months' all become '12')
+          const normLockin = v => {
+            const s = norm(v);
+            if (s === 'all lockins') return 'all lockins';
+            const match = s.match(/(\d+)/);
+            return match ? match[1] : s;
+          };
+          // Special normalization for month values (e.g., 'jan 2024', 'january 2024' -> 'jan 2024')
+          const normMonth = v => {
+            const s = norm(v);
+            if (s === 'all') return 'all';
+            // Try to convert full month to short month
+            const monthMap = {january:'jan',february:'feb',march:'mar',april:'apr',may:'may',june:'jun',july:'jul',august:'aug',september:'sep',october:'oct',november:'nov',december:'dec'};
+            const parts = s.split(' ');
+            if (parts.length === 2 && monthMap[parts[0]]) return monthMap[parts[0]] + ' ' + parts[1];
+            return s;
+          };
+          // Robust normalization for delivery status
+          const normDeliveryStatus = v => {
+            const s = norm(v);
+            if (!s || s === 'all') return 'all';
+            if ([
+              'delivered', 'deliv', 'del', 'completed', 'done', 'fulfilled', 'delivery done', 'delivered order', 'order delivered', 'delivered fully', 'delivered partially', 'delivered completely', 'delivered in full', 'delivered (full)', 'delivered (partial)', 'won & closed', 'won and closed', 'closed', 'won', 'success', 'deal closed', 'contract closed', 'order closed'
+            ].includes(s)) return 'delivered';
+            if ([
+              'pending', 'pending delivery', 'in progress', 'awaiting delivery', 'to be delivered', 'not delivered', 'open', 'pending order', 'order pending', 'delivery pending', 'partially delivered', 'partial delivery', 'pending (partial)', 'pending (full)'
+            ].includes(s)) return 'pending';
+            if ([
+              'ordered', 'order placed', 'placed', 'confirmed', 'po received', 'ordered (not delivered)', 'ordered only', 'ordered (pending)', 'ordered (delivered)', 'ordered (partial)', 'ordered (full)'
+            ].includes(s)) return 'ordered';
+            // Fuzzy match for substrings
+            if (s.includes('deliver')) {
+              if (s.includes('pending') || s.includes('await') || s.includes('not')) return 'pending';
+              if (s.includes('partial')) return 'pending';
+              return 'delivered';
+            }
+            if (s.includes('pending')) return 'pending';
+            if (s.includes('order') || s.includes('placed') || s.includes('confirm')) return 'ordered';
+            if (s.includes('won') || s.includes('closed')) return 'delivered';
+            return s;
+          };
+
+          // Corrected getFilteredData logic for all filters (robust matching)
+          const getFilteredData = () => {
+            let data = leasingData;
+
+            // Sales Rep filter
+            if (repFilter.length && !(repFilter.length === 1 && norm(repFilter[0]) === 'all')) {
+              const repSet = repFilter.map(norm);
+              data = data.filter(d => {
+                // Try matching by normalized rep name, email, or any known key
+                const repName = norm(d.salesRep || d.rep || d['Sales Rep'] || d['sales rep'] || '');
+                const repEmail = norm((d.email || '').split('@')[0].replace('.', ' '));
+                return repSet.includes(repName) || repSet.includes(repEmail);
+              });
+            }
+
+            // Group filter
+            if (groupFilter.length && !(groupFilter.length === 1 && norm(groupFilter[0]) === 'all')) {
+              const groupSet = groupFilter.map(norm);
+              data = data.filter(d => groupSet.includes(norm(d.group || d.groups || d.clientGroup || d.groupCompany || d['Group'] || d['group'] || '')));
+            }
+
+            // Product/Category filter
+            if (categoryFilter.length && !(categoryFilter.length === 1 && norm(categoryFilter[0]) === 'all')) {
+              const catSet = categoryFilter.map(norm);
+              data = data.filter(d => catSet.includes(norm(d.deviceCategory || d.product || d.category || d['Product'] || d['Category'] || '')));
+            }
+
+            // Lockins filter
+            if (lockInFilter.length && !(lockInFilter.length === 1 && normLockin(lockInFilter[0]) === 'all lockins')) {
+              const lockSet = lockInFilter.map(normLockin);
+              data = data.filter(d => lockSet.includes(normLockin(d.lockInMonths || d.lockin || d.lockIn || d['Lockin'] || d['Lock-in Months'] || '')));
+            }
+
+            // Delivery Status filter (robust, like Sales Rep)
+            if (deliveryStatusFilter.length === 0) {
+              // If none selected, show zero results
+              data = [];
+            } else if (deliveryStatusFilter.length === 3) {
+              // If all three selected, do not filter
+              // No action needed
+            } else {
+              // If 1 or 2 selected, filter by those statuses
+              const statusSet = deliveryStatusFilter.map(normDeliveryStatus);
+              data = data.filter(d => statusSet.includes(normDeliveryStatus(d.deliveryStatus || d.status || d.delivery_status || d['Delivery Status'] || d['Status'] || '')));
+            }
+
+            // Month filter
+            if (monthFilter.length && !(monthFilter.length === 1 && normMonth(monthFilter[0]) === 'all')) {
+              const monthSet = monthFilter.map(normMonth);
+              data = data.filter(d => monthSet.includes(normMonth(d.month || d.deliveryMonth || d.delivery_month || d['Month'] || d['Delivery Month'] || '')));
+            }
+
+            // Time Filter (WTD, MTD, YTD, ALL)
+            if (timeFilter && timeFilter !== 'ALL') {
+              const now = new Date();
+              data = data.filter(d => {
+                const dateStr = d.deliveryDate || d.date || d['Delivery Date'] || d['Date'] || '';
+                if (!dateStr) return false;
+                const date = new Date(dateStr);
+                if (timeFilter === 'WTD') {
+                  // Week to date: from last Monday to now
+                  const day = now.getDay();
+                  const monday = new Date(now);
+                  monday.setDate(now.getDate() - ((day + 6) % 7));
+                  monday.setHours(0,0,0,0);
+                  return date >= monday && date <= now;
+                }
+                if (timeFilter === 'MTD') {
+                  // Month to date: from 1st of month to now
+                  const first = new Date(now.getFullYear(), now.getMonth(), 1);
+                  return date >= first && date <= now;
+                }
+                if (timeFilter === 'YTD') {
+                  // Year to date: from Jan 1 to now
+                  const jan1 = new Date(now.getFullYear(), 0, 1);
+                  return date >= jan1 && date <= now;
+                }
+                return true;
+              });
+            }
+
+            // ...other filters (Condition, Sales Type, Deal Type, etc.)...
+
+            return data;
+          };
+
+          const filteredData = getFilteredData();
 
           // Aggregations
           const wonDeals = filteredData.filter(d => d.poReceived === 'Yes');
@@ -330,18 +430,89 @@
           const existingClientMRR = wonDeals.filter(d => d.clientType === 'Existing').reduce((acc, curr) => acc + Number(curr.monthlyBilling || 0), 0);
           // Section 5
           const pipelineVolume = pipelineDeals.reduce((acc, curr) => acc + Number(curr.contractValue || 0), 0);
-          // Section 6
-          const totalDevices = filteredData.filter(d => d.poReceived === 'Yes').reduce((acc, curr) => acc + Number(curr.delivered || 0) + Number(curr.pending || 0), 0);
-          const totalDelivered = filteredData.filter(d => d.poReceived === 'Yes').reduce((acc, curr) => acc + Number(curr.delivered || 0), 0);
-          const pendingDeliveries = filteredData.filter(d => d.poReceived === 'Yes').reduce((acc, curr) => acc + Number(curr.pending || 0), 0);
+          // Section 6, 7, 8 aggregation logic
+          const normalizedStatusFilter = deliveryStatusFilter.length === 0 || deliveryStatusFilter.length === 3
+            ? ['ordered', 'delivered', 'pending']
+            : deliveryStatusFilter.map(normDeliveryStatus);
+          const deliveryStatusSet = new Set(normalizedStatusFilter);
 
-          // Section 7: Delivered Orders (New vs Old)
-          const newDeviceQty = wonDeals.filter(d => d.condition === 'New').reduce((acc, curr) => acc + Number(curr.delivered || 0), 0);
-          const oldDeviceQty = wonDeals.filter(d => d.condition !== 'New').reduce((acc, curr) => acc + Number(curr.delivered || 0), 0);
-          // Section 8: Pending Delivery Mix
-          const totalPending = filteredData.filter(d => d.poReceived === 'Yes').reduce((acc, curr) => acc + Number(curr.pending || 0), 0);
-          const newPendingQty = filteredData.filter(d => d.poReceived === 'Yes' && d.condition === 'New').reduce((acc, curr) => acc + Number(curr.pending || 0), 0);
-          const oldPendingQty = filteredData.filter(d => d.poReceived === 'Yes' && d.condition !== 'New').reduce((acc, curr) => acc + Number(curr.pending || 0), 0);
+          const filteredDeliveredDeals = filteredData.filter(d => {
+            if ((d.poReceived || '').toString().trim().toLowerCase() !== 'yes') return false;
+            const status = normDeliveryStatus(d.deliveryStatus || d.status || d.delivery_status || d['Delivery Status'] || d['Status'] || '');
+            return deliveryStatusSet.has(status);
+          });
+
+          // Debug Logs for Sections 6, 7, 8
+          console.log('Filtered Data for Delivery Status:', filteredData);
+          console.log('Normalized Delivery Status Filter:', normalizedStatusFilter);
+          console.log('Filtered Delivered Deals:', filteredDeliveredDeals);
+          console.log('Filtered Data:', filteredData);
+          console.log('Delivery Status Filter:', deliveryStatusFilter);
+          console.log('Normalized Delivery Status Filter:', normalizedStatusFilter);
+          console.log('Filtered Delivered Deals:', filteredDeliveredDeals);
+          console.log('Sample deliveredStatus values:', filteredData.map(d => d.deliveryStatus || d.status || d.delivery_status || d['Delivery Status'] || d['Status'] || ''));
+          console.log('Sample poReceived values:', filteredData.map(d => d.poReceived));
+          console.log('Sample quantity values:', filteredData.map(d => d.quantity));
+          console.log('Sample delivered values:', filteredData.map(d => d.delivered));
+          console.log('Sample pending values:', filteredData.map(d => d.pending));
+
+          // Ensure these variables are always defined, even if filteredDeliveredDeals is empty
+          const totalDevicesOrdered = filteredData
+            .filter(d => d.poReceived === 'Yes')
+            .reduce((sum, d) => sum + Number(d.quantity || 0), 0);
+          const totalDelivered = filteredData.filter(d => d.poReceived === 'Yes').reduce((sum, d) => sum + Number(d.delivered || 0), 0);
+          const totalPending = filteredData.filter(d => d.poReceived === 'Yes').reduce((sum, d) => sum + Number(d.pending || 0), 0);
+
+          // --- Pending Delivery breakdown (robust handling, always from filteredData, not filteredDeliveredDeals) ---
+          const newPendingQty = filteredData.filter(d => d.poReceived === 'Yes' && ((d.condition || '').toString().trim().toLowerCase() === 'new')).reduce((sum, d) => {
+            let val = Number((d.pending || '').toString().replace(/[^\d.\-]/g, ''));
+            if (isNaN(val)) val = 0;
+            return sum + val;
+          }, 0);
+
+          const oldPendingQty = filteredData.filter(d => d.poReceived === 'Yes' && (((d.condition || '').toString().trim().toLowerCase() === 'old with warranty') || ((d.condition || '').toString().trim().toLowerCase() === 'old without warranty'))).reduce((sum, d) => {
+            let val = Number((d.pending || '').toString().replace(/[^\d.\-]/g, ''));
+            if (isNaN(val)) val = 0;
+            return sum + val;
+          }, 0);
+
+          const deliveredFromOldStock = filteredData.filter(d => d.poReceived === 'Yes' && (((d.condition || '').toString().trim().toLowerCase() === 'old with warranty') || ((d.condition || '').toString().trim().toLowerCase() === 'old without warranty'))).reduce((sum, d) => {
+            let val = Number((d.delivered || '').toString().replace(/[^\d.\-]/g, ''));
+            if (isNaN(val)) val = 0;
+            return sum + val;
+          }, 0);
+
+          // --- Devices Delivered breakdown (robust handling, always from filteredData) ---
+          const deliveredFromNewStock = filteredData.filter(d => d.poReceived === 'Yes' && ((d.condition || '').toString().trim().toLowerCase() === 'new')).reduce((sum, d) => {
+            let val = Number((d.delivered || '').toString().replace(/[^\d.\-]/g, ''));
+            if (isNaN(val)) val = 0;
+            return sum + val;
+          }, 0);
+
+          const deliveredFromNewStockValue = filteredData.filter(d => d.poReceived === 'Yes' && ((d.condition || '').toString().trim().toLowerCase() === 'new')).reduce((sum, d) => sum + (Number(d.delivered || 0) * Number(d.pricePerDevice || d.price_per_device || d.unitPrice || d.unit_price || 0)), 0);
+          const deliveredFromOldStockValue = filteredData.filter(d => d.poReceived === 'Yes' && (((d.condition || '').toString().trim().toLowerCase() === 'old with warranty') || ((d.condition || '').toString().trim().toLowerCase() === 'old without warranty'))).reduce((sum, d) => sum + (Number(d.delivered || 0) * Number(d.pricePerDevice || d.price_per_device || d.unitPrice || d.unit_price || 0)), 0);
+
+          // --- Value calculations for new section 7 ---
+          const totalDevicesOrderedValue = filteredData
+            .filter(d => d.poReceived === 'Yes')
+            .reduce((sum, d) => sum + (Number(d.quantity || 0) * Number(d.pricePerDevice || d.price_per_device || d.unitPrice || d.unit_price || 0)), 0);
+          const totalDeliveredValue = filteredData
+            .filter(d => d.poReceived === 'Yes')
+            .reduce((sum, d) => sum + (Number(d.delivered || 0) * Number(d.pricePerDevice || d.price_per_device || d.unitPrice || d.unit_price || 0)), 0);
+          const totalPendingValue = filteredData
+            .filter(d => d.poReceived === 'Yes')
+            .reduce((sum, d) => sum + (Number(d.pending || 0) * Number(d.pricePerDevice || d.price_per_device || d.unitPrice || d.unit_price || 0)), 0);
+
+          const totalDevicesDeliveredValue = filteredData
+            .filter(d => d.poReceived === 'Yes')
+            .reduce((sum, d) => sum + (Number(d.delivered || 0) * Number(d.pricePerDevice || d.price_per_device || d.unitPrice || d.unit_price || 0)), 0);
+
+          // --- Pending Value breakdowns ---
+          const pendingFromNewStockValue = filteredData.filter(d => d.poReceived === 'Yes' && ((d.condition || '').toString().trim().toLowerCase() === 'new')).reduce((sum, d) => sum + (Number(d.pending || 0) * Number(d.pricePerDevice || d.price_per_device || d.unitPrice || d.unit_price || 0)), 0);
+          const pendingFromOldStockValue = filteredData.filter(d => d.poReceived === 'Yes' && (((d.condition || '').toString().trim().toLowerCase() === 'old with warranty') || ((d.condition || '').toString().trim().toLowerCase() === 'old without warranty'))).reduce((sum, d) => sum + (Number(d.pending || 0) * Number(d.pricePerDevice || d.price_per_device || d.unitPrice || d.unit_price || 0)), 0);
+
+          // Section 6: Devices Ordered (Total and New/Old)
+          // Section 8: Pending Delivery (Total and New/Old)
 
           // Revenue Mix (Contract) percentage calculation
           const totalMix = newClientRevenue + existingClientRevenue;
@@ -496,38 +667,183 @@
                   <div className="flex bg-[#E3F2FD] rounded-lg p-1">{['WTD', 'MTD', 'YTD', 'ALL'].map((time) => (<button key={time} onClick={() => setTimeFilter(time)} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${timeFilter === time ? 'bg-white text-[#4285F4] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{time}</button>))}</div>
                   <div className="h-6 w-px bg-slate-200 hidden sm:block"></div>
                   
-                  {/* Dropdowns */}
+                  {/* Sales Rep Multi-Select Popover (unchanged) */}
                   <div className="relative">
-                    <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={repFilter} onChange={(e) => setRepFilter(e.target.value)}>{uniqueReps.map(r => <option key={r} value={r}>{r === 'All' ? 'All Sales Reps' : r}</option>)}</select>
+                    <button
+                      className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none min-w-[160px] text-left"
+                      onClick={() => setShowRepPopover(!showRepPopover)}
+                      style={{ position: "relative" }}
+                    >
+                      {repFilter.length === 1 && repFilter[0] === "All"
+                        ? "All Sales Reps"
+                        : repFilter.length === 0
+                        ? "Select Sales Reps"
+                        : repFilter.join(", ")}
+                    </button>
+                    {showRepPopover && (
+                      <div
+                        className="absolute z-50 bg-white border border-slate-200 rounded-lg shadow-lg mt-2 p-3 min-w-[220px]"
+                        style={{ left: 0 }}
+                      >
+                        <div className="flex justify-between items-center mb-2">
+                          <button
+                            className="text-blue-600 text-xs font-medium hover:underline"
+                            onClick={() => setRepFilter(filteredReps.filter(r => r !== "All"))}
+                          >
+                            Select all {filteredReps.length - (filteredReps.includes("All") ? 1 : 0)}
+                          </button>
+                          <button
+                            className="text-blue-600 text-xs font-medium hover:underline"
+                            onClick={() => setRepFilter(["All"])}
+                          >
+                            Clear
+                          </button>
+                          <span className="text-xs text-slate-700">Displaying {filteredReps.length - (filteredReps.includes("All") ? 1 : 0)}</span>
+                        </div>
+                        <input
+                          type="text"
+                          className="w-full mb-2 px-2 py-1 border border-slate-200 rounded text-sm"
+                          placeholder="Search..."
+                          value={repSearch}
+                          onChange={e => setRepSearch(e.target.value)}
+                        />
+                        <div style={{ maxHeight: "180px", overflowY: "auto" }}>
+                          {filteredReps.filter(r => r !== "All").map(rep => (
+                            <div
+                              key={rep}
+                              className="flex items-center gap-2 py-1 cursor-pointer hover:bg-slate-50 rounded"
+                              onClick={() => {
+                                if (repFilter.includes(rep)) {
+                                  const newFilter = repFilter.filter(r => r !== rep);
+                                  setRepFilter(newFilter.length ? newFilter : ["All"]);
+                                } else {
+                                  setRepFilter(repFilter.includes("All") ? [rep] : [...repFilter, rep]);
+                                }
+                              }}
+                            >
+                              <span style={{ fontSize: "1.2em" }}>{repFilter.includes(rep) ? "✓" : ""}</span>
+                              <span className="text-base text-slate-800">{rep}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex justify-end mt-2">
+                          <button
+                            className="px-3 py-1 bg-green-600 text-white rounded font-medium text-sm"
+                            onClick={() => setShowRepPopover(false)}
+                          >OK</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   
+                  {/* Group Multi-Select Popover */}
                   <div className="relative">
-                    <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>{uniqueGroups.map(g => <option key={g} value={g}>{g === 'All' ? 'All Groups' : g}</option>)}</select>
-                  </div>
-
-                  <div className="relative">
-                    <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={conditionFilter} onChange={(e) => setConditionFilter(e.target.value)}>{uniqueConditions.map(c => <option key={c} value={c}>{c === 'All' ? 'All Conditions' : c}</option>)}</select>
+                    <button className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none min-w-[160px] text-left" onClick={() => setShowGroupPopover(!showGroupPopover)} style={{ position: "relative" }}>
+                      {groupFilter.length === 1 && groupFilter[0] === "All" ? "All Groups" : groupFilter.length === 0 ? "Select Groups" : groupFilter.join(", ")}
+                    </button>
+                    {showGroupPopover && (
+                      <div className="absolute z-50 bg-white border border-slate-200 rounded-lg shadow-lg mt-2 p-3 min-w-[220px]" style={{ left: 0 }}>
+                        <div className="flex justify-between items-center mb-2">
+                          <button className="text-blue-600 text-xs font-medium hover:underline" onClick={() => setGroupFilter(uniqueGroups.filter(g => g !== "All"))}>Select all {uniqueGroups.length - 1}</button>
+                          <button className="text-blue-600 text-xs font-medium hover:underline" onClick={() => setGroupFilter(["All"])}>Clear</button>
+                          <span className="text-xs text-slate-700">Displaying {uniqueGroups.length - 1}</span>
+                        </div>
+                        <input type="text" className="w-full mb-2 px-2 py-1 border border-slate-200 rounded text-sm" placeholder="Search..." value={groupSearch} onChange={e => setGroupSearch(e.target.value)} />
+                        <div style={{ maxHeight: "180px", overflowY: "auto" }}>
+                          {uniqueGroups.filter(g => g !== "All" && g.toLowerCase().includes(groupSearch.toLowerCase())).map(group => (
+                            <div key={group} className="flex items-center gap-2 py-1 cursor-pointer hover:bg-slate-50 rounded" onClick={() => {
+                              if (groupFilter.includes(group)) {
+                                const newFilter = groupFilter.filter(gf => gf !== group);
+                                setGroupFilter(newFilter.length ? newFilter : ["All"]);
+                              } else {
+                                setGroupFilter(groupFilter.includes("All") ? [group] : [...groupFilter, group]);
+                              }
+                            }}>
+                              <span style={{ fontSize: "1.2em" }}>{groupFilter.includes(group) ? "✓" : ""}</span>
+                              <span className="text-base text-slate-800">{group}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex justify-end mt-2">
+                          <button className="px-3 py-1 bg-green-600 text-white rounded font-medium text-sm" onClick={() => setShowGroupPopover(false)}>OK</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   
+                  {/* Products Multi-Select Popover */}
                   <div className="relative">
-                    <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>{uniqueCategories.map(c => <option key={c} value={c}>{c === 'All' ? 'All Products' : c}</option>)}</select>
+                    <button className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none min-w-[160px] text-left" onClick={() => setShowCategoryPopover(!showCategoryPopover)} style={{ position: "relative" }}>
+                      {categoryFilter.length === 1 && categoryFilter[0] === "All" ? "All Products" : categoryFilter.length === 0 ? "Select Products" : categoryFilter.join(", ")}
+                    </button>
+                    {showCategoryPopover && (
+                      <div className="absolute z-50 bg-white border border-slate-200 rounded-lg shadow-lg mt-2 p-3 min-w-[220px]" style={{ left: 0 }}>
+                        <div className="flex justify-between items-center mb-2">
+                          <button className="text-blue-600 text-xs font-medium hover:underline" onClick={() => setCategoryFilter(uniqueCategories.filter(c => c !== "All"))}>Select all {uniqueCategories.length - 1}</button>
+                          <button className="text-blue-600 text-xs font-medium hover:underline" onClick={() => setCategoryFilter(["All"])}>Clear</button>
+                          <span className="text-xs text-slate-700">Displaying {uniqueCategories.length - 1}</span>
+                        </div>
+                        <input type="text" className="w-full mb-2 px-2 py-1 border border-slate-200 rounded text-sm" placeholder="Search..." value={categorySearch} onChange={e => setCategorySearch(e.target.value)} />
+                        <div style={{ maxHeight: "180px", overflowY: "auto" }}>
+                          {uniqueCategories.filter(c => c !== "All" && c.toLowerCase().includes(categorySearch.toLowerCase())).map(category => (
+                            <div key={category} className="flex items-center gap-2 py-1 cursor-pointer hover:bg-slate-50 rounded" onClick={() => {
+                              if (categoryFilter.includes(category)) {
+                                const newFilter = categoryFilter.filter(cf => cf !== category);
+                                setCategoryFilter(newFilter.length ? newFilter : ["All"]);
+                              } else {
+                                setCategoryFilter(categoryFilter.includes("All") ? [category] : [...categoryFilter, category]);
+                              }
+                            }}>
+                              <span style={{ fontSize: "1.2em" }}>{categoryFilter.includes(category) ? "✓" : ""}</span>
+                              <span className="text-base text-slate-800">{category}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex justify-end mt-2">
+                          <button className="px-3 py-1 bg-green-600 text-white rounded font-medium text-sm" onClick={() => setShowCategoryPopover(false)}>OK</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   
+                  {/* Lockins Multi-Select Popover */}
                   <div className="relative">
-                    <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={lockInFilter} onChange={(e) => setLockInFilter(e.target.value)}>{lockInOptions.map(l => <option key={l} value={l}>{l}</option>)}</select>
-                  </div>
-                  
-                  <div className="relative">
-                    <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={dealTypeFilter} onChange={(e) => setDealTypeFilter(e.target.value)}>{dealTypeOptions.map(d => <option key={d} value={d}>{d === 'All' ? 'All Deal Types' : d}</option>)}</select>
-                  </div>
-
-                  <div className="relative">
-                    <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={salesTypeFilter} onChange={(e) => setSalesTypeFilter(e.target.value)}>{salesTypeOptions.map(s => <option key={s} value={s}>{s}</option>)}</select>
+                    <button className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none min-w-[160px] text-left" onClick={() => setShowLockInPopover(!showLockInPopover)} style={{ position: "relative" }}>
+                      {lockInFilter.length === 1 && lockInFilter[0] === "All Lockins" ? "All Lockins" : lockInFilter.length === 0 ? "Select Lockins" : lockInFilter.join(", ")}
+                    </button>
+                    {showLockInPopover && (
+                      <div className="absolute z-50 bg-white border border-slate-200 rounded-lg shadow-lg mt-2 p-3 min-w-[220px]" style={{ left: 0 }}>
+                        <div className="flex justify-between items-center mb-2">
+                          <button className="text-blue-600 text-xs font-medium hover:underline" onClick={() => setLockInFilter(lockInOptions.filter(l => l !== "All Lockins"))}>Select all {lockInOptions.length - 1}</button>
+                          <button className="text-blue-600 text-xs font-medium hover:underline" onClick={() => setLockInFilter(["All Lockins"])}>Clear</button>
+                          <span className="text-xs text-slate-700">Displaying {lockInOptions.length - 1}</span>
+                        </div>
+                        <input type="text" className="w-full mb-2 px-2 py-1 border border-slate-200 rounded text-sm" placeholder="Search..." value={lockInSearch} onChange={e => setLockInSearch(e.target.value)} />
+                        <div style={{ maxHeight: "180px", overflowY: "auto" }}>
+                          {lockInOptions.filter(l => l !== "All Lockins" && l.toLowerCase().includes(lockInSearch.toLowerCase())).map(lockin => (
+                            <div key={lockin} className="flex items-center gap-2 py-1 cursor-pointer hover:bg-slate-50 rounded" onClick={() => {
+                              if (lockInFilter.includes(lockin)) {
+                                const newFilter = lockInFilter.filter(lf => lf !== lockin);
+                                setLockInFilter(newFilter.length ? newFilter : ["All Lockins"]);
+                              } else {
+                                setLockInFilter(lockInFilter.includes("All Lockins") ? [lockin] : [...lockInFilter, lockin]);
+                              }
+                            }}>
+                              <span style={{ fontSize: "1.2em" }}>{lockInFilter.includes(lockin) ? "✓" : ""}</span>
+                              <span className="text-base text-slate-800">{lockin}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex justify-end mt-2">
+                          <button className="px-3 py-1 bg-green-600 text-white rounded font-medium text-sm" onClick={() => setShowLockInPopover(false)}>OK</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   
                   {/* Reset Button */}
                   {(repFilter !== 'All' || conditionFilter !== 'All' || categoryFilter !== 'All' || lockInFilter !== 'All' || timeFilter !== 'ALL' || dealTypeFilter !== 'All' || groupFilter !== 'All') && (
-                    <button onClick={() => { setRepFilter('All'); setConditionFilter('All'); setCategoryFilter('All'); setLockInFilter('All'); setTimeFilter('ALL'); setDealTypeFilter('All'); setGroupFilter('All'); }} className="text-xs text-red-500 hover:text-red-700 font-medium ml-auto">Reset Filters</button>
+                    <button onClick={() => { setRepFilter(['All']); setConditionFilter(['All']); setCategoryFilter(['All']); setLockInFilter(['All Lockins']); setTimeFilter('ALL'); setDealTypeFilter(['All']); setGroupFilter(['All']); setDeliveryStatusFilter(['Ordered', 'Delivered', 'Pending']); setMonthFilter(['All']); }} className="text-xs text-red-500 hover:text-red-700 font-medium ml-auto">Reset Filters</button>
                   )}
                 </div>
               </Card>
@@ -584,14 +900,14 @@
                 </Card>
               </div>
 
-              {/* 5-8. OPERATIONS & PIPELINE */}
+              {/* 5-9. OPERATIONS & PIPELINE */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <KPICard title={<span className="text-2xl font-bold text-slate-800 uppercase tracking-wide">5. PIPELINE VOLUME</span>} value={<span className="text-4xl font-extrabold text-slate-800">{formatCrINR(topPipelineDeals.reduce((a,c)=>a+Number(c.contractValue||0),0))}</span>} subtext={<span className="text-base text-slate-500">{topPipelineDeals.length} deals pending PO</span>} colorClass="text-[#FBBC05] bg-[#FBBC05]" />
                 <Card className="p-6">
                   <ChartHeader title="6. Devices Ordered" />
                   <div className="flex flex-col gap-2">
                     <div className="w-full flex justify-center items-center my-2">
-                      <span className="text-3xl font-extrabold text-slate-800">{totalDevices}</span>
+                      <span className="text-3xl font-extrabold text-slate-800">{totalDevicesOrdered}</span>
                       <span className="ml-2 text-base text-slate-500 font-medium">Total Ordered</span>
                     </div>
                     <div className="flex justify-between items-end mb-2">
@@ -601,21 +917,48 @@
                       </div>
                       <div className="text-right">
                         <span className="block text-xs font-semibold uppercase tracking-wide text-[#FBBC05]">Not Yet</span>
-                        <span className="text-2xl font-bold text-[#FBBC05]">{pendingDeliveries}</span>
+                        <span className="text-2xl font-bold text-[#FBBC05]">{totalPending}</span>
                       </div>
                     </div>
                     <div className="w-full h-8 flex rounded-full overflow-hidden bg-slate-100 relative mt-2">
-                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#34A853]" style={{ width: `${totalDevices > 0 ? (totalDelivered / totalDevices) * 100 : 0}%` }}>
-                        {totalDevices > 0 && `${Math.round((totalDelivered / totalDevices) * 100)}%`}
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#34A853]" style={{ width: `${totalDevicesOrdered > 0 ? (totalDelivered / totalDevicesOrdered) * 100 : 0}%` }}>
+                        {totalDevicesOrdered > 0 && `${Math.round((totalDelivered / totalDevicesOrdered) * 100)}%`}
                       </div>
-                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#FBBC05]" style={{ width: `${totalDevices > 0 ? (pendingDeliveries / totalDevices) * 100 : 0}%` }}>
-                        {totalDevices > 0 && `${Math.round((pendingDeliveries / totalDevices) * 100)}%`}
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#FBBC05]" style={{ width: `${totalDevicesOrdered > 0 ? (totalPending / totalDevicesOrdered) * 100 : 0}%` }}>
+                        {totalDevicesOrdered > 0 && `${Math.round((totalPending / totalDevicesOrdered) * 100)}%`}
                       </div>
                     </div>
                   </div>
                 </Card>
                 <Card className="p-6">
-                  <ChartHeader title="7. Delivered Delivered" />
+                  <ChartHeader title="7. Devices Ordered Value" />
+                  <div className="flex flex-col gap-2">
+                    <div className="w-full flex justify-center items-center my-2">
+                      <span className="text-3xl font-extrabold text-slate-800">{formatCrINR(totalDevicesOrderedValue)}</span>
+                      <span className="ml-2 text-base text-slate-500 font-medium">Total Ordered Value</span>
+                    </div>
+                    <div className="flex justify-between items-end mb-2">
+                      <div className="text-left">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#34A853]">Delivered Value</span>
+                        <span className="text-2xl font-bold text-[#34A853]">{formatCrINR(totalDeliveredValue)}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#FBBC05]">Pending Value</span>
+                        <span className="text-2xl font-bold text-[#FBBC05]">{formatCrINR(totalPendingValue)}</span>
+                      </div>
+                    </div>
+                    <div className="w-full h-8 flex rounded-full overflow-hidden bg-slate-100 relative mt-2">
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#34A853]" style={{ width: `${totalDevicesOrderedValue > 0 ? (totalDeliveredValue / totalDevicesOrderedValue) * 100 : 0}%` }}>
+                        {totalDevicesOrderedValue > 0 && `${Math.round((totalDeliveredValue / totalDevicesOrderedValue) * 100)}%`}
+                      </div>
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#FBBC05]" style={{ width: `${totalDevicesOrderedValue > 0 ? (totalPendingValue / totalDevicesOrderedValue) * 100 : 0}%` }}>
+                        {totalDevicesOrderedValue > 0 && `${Math.round((totalPendingValue / totalDevicesOrderedValue) * 100)}%`}
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+                <Card className="p-6">
+                  <ChartHeader title="8. Devices Delivered" />
                   <div className="flex flex-col gap-2">
                     <div className="w-full flex justify-center items-center my-2">
                       <span className="text-3xl font-extrabold text-slate-800">{totalDelivered}</span>
@@ -624,25 +967,51 @@
                     <div className="flex justify-between items-end mb-2">
                       <div className="text-left">
                         <span className="block text-xs font-semibold uppercase tracking-wide text-[#34A853]">FROM NEW STOCK</span>
-                        <span className="text-2xl font-bold text-[#34A853]">{newDeviceQty}</span>
+                        <span className="text-2xl font-bold text-[#34A853]">{deliveredFromNewStock}</span>
                       </div>
                       <div className="text-right">
                         <span className="block text-xs font-semibold uppercase tracking-wide text-[#EA4335]">FROM OLD STOCK</span>
-                        <span className="text-2xl font-bold text-[#EA4335]">{oldDeviceQty}</span>
+                        <span className="text-2xl font-bold text-[#EA4335]">{deliveredFromOldStock}</span>
                       </div>
                     </div>
                     <div className="w-full h-8 flex rounded-full overflow-hidden bg-slate-100 relative mt-2">
-                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#34A853]" style={{ width: `${newDeviceQty + oldDeviceQty > 0 ? (newDeviceQty / (newDeviceQty + oldDeviceQty)) * 100 : 0}%` }}>
-                        {newDeviceQty + oldDeviceQty > 0 && `${Math.round((newDeviceQty / (newDeviceQty + oldDeviceQty)) * 100)}%`}
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#34A853]" style={{ width: `${totalDelivered > 0 ? (deliveredFromNewStock / totalDelivered) * 100 : 0}%` }}>
+                        {totalDelivered > 0 && `${Math.round((deliveredFromNewStock / totalDelivered) * 100)}%`}
                       </div>
-                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#EA4335]" style={{ width: `${newDeviceQty + oldDeviceQty > 0 ? (oldDeviceQty / (newDeviceQty + oldDeviceQty)) * 100 : 0}%` }}>
-                        {newDeviceQty + oldDeviceQty > 0 && `${Math.round((oldDeviceQty / (newDeviceQty + oldDeviceQty)) * 100)}%`}
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#EA4335]" style={{ width: `${totalDelivered > 0 ? (deliveredFromOldStock / totalDelivered) * 100 : 0}%` }}>
+                        {totalDelivered > 0 && `${Math.round((deliveredFromOldStock / totalDelivered) * 100)}%`}
                       </div>
                     </div>
                   </div>
                 </Card>
                 <Card className="p-6">
-                  <ChartHeader title="8. Pending Delivery" />
+                  <ChartHeader title="9. Devices Delivered Value" />
+                  <div className="flex flex-col gap-2">
+                    <div className="w-full flex justify-center items-center my-2">
+                      <span className="text-4xl font-extrabold text-slate-800">{formatCrINR(totalDevicesDeliveredValue)}</span>
+                    </div>
+                    <div className="flex justify-between items-end mb-2">
+                      <div className="text-left">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#34A853]">FROM NEW STOCK</span>
+                        <span className="text-2xl font-bold text-[#34A853]">{formatCrINR(deliveredFromNewStockValue)}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#EA4335]">FROM OLD STOCK</span>
+                        <span className="text-2xl font-bold text-[#EA4335]">{formatCrINR(deliveredFromOldStockValue)}</span>
+                      </div>
+                    </div>
+                    <div className="w-full h-8 flex rounded-full overflow-hidden bg-slate-100 relative mt-2">
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#34A853]" style={{ width: `${totalDevicesDeliveredValue > 0 ? (deliveredFromNewStockValue / totalDevicesDeliveredValue) * 100 : 0}%` }}>
+                        {totalDevicesDeliveredValue > 0 && `${Math.round((deliveredFromNewStockValue / totalDevicesDeliveredValue) * 100)}%`}
+                      </div>
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#EA4335]" style={{ width: `${totalDevicesDeliveredValue > 0 ? (deliveredFromOldStockValue / totalDevicesDeliveredValue) * 100 : 0}%` }}>
+                        {totalDevicesDeliveredValue > 0 && `${Math.round((deliveredFromOldStockValue / totalDevicesDeliveredValue) * 100)}%`}
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+                <Card className="p-6">
+                  <ChartHeader title="10. Pending Delivery" />
                   <div className="flex flex-col gap-2">
                     <div className="w-full flex justify-center items-center my-2">
                       <span className="text-3xl font-extrabold text-slate-800">{totalPending}</span>
@@ -650,20 +1019,46 @@
                     </div>
                     <div className="flex justify-between items-end mb-2">
                       <div className="text-left">
-                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#4285F4]">FROM NEW STOCK</span>
-                        <span className="text-2xl font-bold text-[#4285F4]">{newPendingQty}</span>
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#34A853]">FROM NEW STOCK</span>
+                        <span className="text-2xl font-bold text-[#34A853]">{newPendingQty}</span>
                       </div>
                       <div className="text-right">
-                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#FBBC05]">FROM OLD STOCK</span>
-                        <span className="text-2xl font-bold text-[#FBBC05]">{oldPendingQty}</span>
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#EA4335]">FROM OLD STOCK</span>
+                        <span className="text-2xl font-bold text-[#EA4335]">{oldPendingQty}</span>
                       </div>
                     </div>
                     <div className="w-full h-8 flex rounded-full overflow-hidden bg-slate-100 relative mt-2">
-                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#4285F4]" style={{ width: `${newPendingQty + oldPendingQty > 0 ? (newPendingQty / (newPendingQty + oldPendingQty)) * 100 : 0}%` }}>
-                        {newPendingQty + oldPendingQty > 0 && `${Math.round((newPendingQty / (newPendingQty + oldPendingQty)) * 100)}%`}
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#34A853]" style={{ width: `${totalPending > 0 ? (newPendingQty / totalPending) * 100 : 0}%` }}>
+                        {totalPending > 0 && `${Math.round((newPendingQty / totalPending) * 100)}%`}
                       </div>
-                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#FBBC05]" style={{ width: `${newPendingQty + oldPendingQty > 0 ? (oldPendingQty / (newPendingQty + oldPendingQty)) * 100 : 0}%` }}>
-                        {newPendingQty + oldPendingQty > 0 && `${Math.round((oldPendingQty / (newPendingQty + oldPendingQty)) * 100)}%`}
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#EA4335]" style={{ width: `${totalPending > 0 ? (oldPendingQty / totalPending) * 100 : 0}%` }}>
+                        {totalPending > 0 && `${Math.round((oldPendingQty / totalPending) * 100)}%`}
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+                <Card className="p-6">
+                  <ChartHeader title="11. Pending Value" />
+                  <div className="flex flex-col gap-2">
+                    <div className="w-full flex justify-center items-center my-2">
+                      <span className="text-4xl font-extrabold text-slate-800">{formatCrINR(totalPendingValue)}</span>
+                    </div>
+                    <div className="flex justify-between items-end mb-2">
+                      <div className="text-left">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#34A853]">FROM NEW STOCK</span>
+                        <span className="text-2xl font-bold text-[#34A853]">{formatCrINR(pendingFromNewStockValue)}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-[#EA4335]">FROM OLD STOCK</span>
+                        <span className="text-2xl font-bold text-[#EA4335]">{formatCrINR(pendingFromOldStockValue)}</span>
+                      </div>
+                    </div>
+                    <div className="w-full h-8 flex rounded-full overflow-hidden bg-slate-100 relative mt-2">
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#34A853]" style={{ width: `${totalPendingValue > 0 ? (pendingFromNewStockValue / totalPendingValue) * 100 : 0}%` }}>
+                        {totalPendingValue > 0 && `${Math.round((pendingFromNewStockValue / totalPendingValue) * 100)}%`}
+                      </div>
+                      <div className="h-full flex items-center justify-center text-xs text-white font-bold transition-all duration-500 bg-[#EA4335]" style={{ width: `${totalPendingValue > 0 ? (pendingFromOldStockValue / totalPendingValue) * 100 : 0}%` }}>
+                        {totalPendingValue > 0 && `${Math.round((pendingFromOldStockValue / totalPendingValue) * 100)}%`}
                       </div>
                     </div>
                   </div>
@@ -781,52 +1176,6 @@
                           <th className="p-2 text-left">Category</th>
                           <th className="p-2 text-right">New Avg Rate</th>
                           <th className="p-2 text-right">Old Avg Rate</th>
-                          <th className="p-2 text-right">% Discounted</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(() => {
-                          // Build a breakdown by category and condition for avg rental rate
-                          const breakdown = {};
-                          wonDeals.forEach(deal => {
-                            const cat = deal.deviceCategory || 'Other';
-                            const isNew = deal.condition === 'New';
-                            if (!breakdown[cat]) breakdown[cat] = { newBill: 0, newQty: 0, oldBill: 0, oldQty: 0 };
-                            if (isNew) {
-                              breakdown[cat].newBill += Number(deal.monthlyBilling || 0);
-                              breakdown[cat].newQty += Number(deal.quantity || 0);
-                            } else {
-                              breakdown[cat].oldBill += Number(deal.monthlyBilling || 0);
-                              breakdown[cat].oldQty += Number(deal.quantity || 0);
-                            }
-                          });
-                          return Object.entries(breakdown).map(([cat, vals]) => {
-                            const avgNew = vals.newQty > 0 ? Math.round(vals.newBill / vals.newQty) : 0;
-                            const avgOld = vals.oldQty > 0 ? Math.round(vals.oldBill / vals.oldQty) : 0;
-                            const pctDiscounted = (avgNew > 0 && avgOld > 0) ? (((avgNew - avgOld) / avgNew) * 100).toFixed(1) : '-';
-                            return (
-                              <tr key={cat} className="border-b border-slate-100">
-                                <td className="p-2 font-medium">{cat}</td>
-                                <td className="p-2 text-right">{avgNew > 0 ? `₹${avgNew}` : '-'}</td>
-                                <td className="p-2 text-right">{avgOld > 0 ? `₹${avgOld}` : '-'}</td>
-                                <td className="p-2 text-right">{pctDiscounted !== '-' ? `${pctDiscounted}%` : '-'}</td>
-                              </tr>
-                            );
-                          });
-                        })()}
-                      </tbody>
-                    </table>
-                  </div>
-                </Card>
-                <Card className="p-6">
-                  <ChartHeader title="11. Avg Rental Rate (Device Type Breakdown)" />
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm text-slate-700">
-                      <thead className="bg-[#E3F2FD]">
-                        <tr>
-                          <th className="p-2 text-left">Category</th>
-                          <th className="p-2 text-right">New Avg Rate</th>
-                          <th className="p-2 text-right">Old Avg Rate</th>
                           <th className="p-2 text-right"># Devices</th>
                           <th className="p-2 text-right">Revenue</th>
                         </tr>
@@ -901,14 +1250,23 @@
                     const sortedReps = [...topByVolume].sort((a, b) => {
                       let aVal, bVal;
                       if (sortCol === 'monthlyValue') {
-                        aVal = monthlyStats[a.email] || monthlyStats[Object.keys(monthlyStats).find(e => a.name === (e.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase())))] || 0;
-                        bVal = monthlyStats[b.email] || monthlyStats[Object.keys(monthlyStats).find(e => b.name === (e.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase())))] || 0;
+                        aVal = monthlyStats[a.email] || 0;
+                        bVal = monthlyStats[b.email] || 0;
+                      } else if (sortCol === 'contractValue') {
+                        aVal = a.wonVolume;
+                        bVal = b.wonVolume;
+                      } else if (sortCol === 'wonCount') {
+                        aVal = a.wonCount;
+                        bVal = b.wonCount;
+                      } else if (sortCol === 'uniqueGroupCount') {
+                        aVal = a.uniqueGroupCount;
+                        bVal = b.uniqueGroupCount;
                       } else {
                         aVal = a[sortCol];
                         bVal = b[sortCol];
                       }
-                      if (sortDir === 'asc') return aVal > bVal ? 1 : -1;
-                      else return aVal < bVal ? -1 : 1;
+                      if (sortDir === 'asc') return aVal - bVal;
+                      else return bVal - aVal;
                     });
                     const totalContractValue = sortedReps.reduce((sum, rep) => sum + rep.wonVolume, 0);
                     return (
@@ -917,10 +1275,10 @@
                           <tr>
                             <th className="p-2 text-left cursor-pointer" onClick={() => handleSort('rank')}>Rank</th>
                             <th className="p-2 text-left cursor-pointer" onClick={() => handleSort('name')}>Sales Rep</th>
-                            <th className="p-2 text-right cursor-pointer" onClick={() => handleSort('wonVolume')}>Contract Value</th>
-                            <th className="p-2 text-right cursor-pointer" onClick={() => handleSort('monthlyValue')}>Monthly Value</th>
-                            <th className="p-2 text-right cursor-pointer" onClick={() => handleSort('wonCount')}># Orders</th>
-                            <th className="p-2 text-right cursor-pointer" onClick={() => handleSort('uniqueGroupCount')}># Unique Groups</th>
+                            <th className={`p-2 text-right cursor-pointer ${sortCol==='contractValue'?'text-[#4285F4]':''}`} onClick={() => handleSort('contractValue')}>Contract Value {sortCol==='contractValue' ? (sortDir==='asc'?'▲':'▼') : ''}</th>
+                            <th className={`p-2 text-right cursor-pointer ${sortCol==='monthlyValue'?'text-[#4285F4]':''}`} onClick={() => handleSort('monthlyValue')}>Monthly Value {sortCol==='monthlyValue' ? (sortDir==='asc'?'▲':'▼') : ''}</th>
+                            <th className={`p-2 text-right cursor-pointer ${sortCol==='wonCount'?'text-[#4285F4]':''}`} onClick={() => handleSort('wonCount')}># Orders {sortCol==='wonCount' ? (sortDir==='asc'?'▲':'▼') : ''}</th>
+                            <th className={`p-2 text-right cursor-pointer ${sortCol==='uniqueGroupCount'?'text-[#4285F4]':''}`} onClick={() => handleSort('uniqueGroupCount')}># Unique Groups {sortCol==='uniqueGroupCount' ? (sortDir==='asc'?'▲':'▼') : ''}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1051,12 +1409,24 @@
 
               {/* 18. MAIN TABLE */}
               <Card className="overflow-hidden">
-                <div className="p-6 border-b border-slate-100 flex justify-between items-center"><ChartHeader title="18. Recent Contracts & Device Status" /></div>
+                {/* PO Received / Proposal Switch Filter */}
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="font-semibold text-sm text-slate-700">Show:</span>
+                  {["All", "PO Received", "Proposal"].map(opt => (
+                    <button
+                      key={opt}
+                      onClick={() => setTablePoFilter(opt)}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition-all border border-slate-200 ${tablePoFilter === opt ? 'bg-[#4285F4] text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm text-slate-600">
                     <thead className="bg-[#E3F2FD] text-slate-700 uppercase font-bold text-xs"><tr><th className="p-4 min-w-[200px]">Client</th><th className="p-4">Group</th><th className="p-4 min-w-[250px]">Device Specs</th><th className="p-4 text-center">Qty</th><th className="p-4 text-right">Monthly (Ex. GST)</th><th className="p-4 text-right">Contract Val</th><th className="p-4">Delivery Date</th><th className="p-4">Status</th></tr></thead>
                     <tbody className="divide-y divide-slate-100">
-                      {filteredData.map((deal, idx) => (
+                      {(tablePoFilter === 'All' ? filteredData : tablePoFilter === 'PO Received' ? filteredData.filter(deal => deal.poReceived === 'Yes') : filteredData.filter(deal => deal.poReceived !== 'Yes')).map((deal, idx) => (
                         <tr key={deal.id || `${deal.client}-${deal.deliveryDate}-${idx}` } className="hover:bg-[#E3F2FD] transition-colors">
                           <td className="p-4"><div className="font-bold text-slate-800">{deal.client}</div><div className="text-xs text-slate-500 mt-1 flex items-center gap-1">{deal.clientType === 'New' ? <span className="text-[#4285F4] font-semibold">New</span> : 'Existing'} • {deal.poReceived === 'Yes' ? <span className="text-[#34A853] font-medium">PO Recvd</span> : <span className="text-[#FBBC05] font-medium">No PO</span>}<span className="ml-1 text-slate-400">• {deal.dealType}</span></div></td>
                           <td className="p-4 text-slate-600 font-medium">{deal.groupCompany || '-'}</td>
@@ -1080,7 +1450,7 @@
                           <td className="p-4">{deal.pending > 0 ? (<span className="inline-flex items-center gap-1 bg-[#FBBC05] text-[#FBBC05] px-2 py-1 rounded-full text-xs font-bold"> Pending</span>) : (<span className="inline-flex items-center gap-1 bg-[#34A853] text-[#34A853] px-2 py-1 rounded-full text-xs font-bold"> Delivered</span>)}</td>
                         </tr>
                       ))}
-                      {filteredData.length === 0 && (<tr><td colSpan={8} className="p-8 text-center text-slate-400">No contracts match your current filters. Try selecting "All" for time period.</td></tr>)}
+                      {(tablePoFilter === 'All' ? filteredData : tablePoFilter === 'PO Received' ? filteredData.filter(deal => deal.poReceived === 'Yes') : filteredData.filter(deal => deal.poReceived !== 'Yes')).length === 0 && (<tr><td colSpan={8} className="p-8 text-center text-slate-400">No contracts match your current filters. Try selecting "All" for time period.</td></tr>)}
                     </tbody>
                   </table>
                 </div>
@@ -1102,7 +1472,71 @@
                       <div className="flex bg-[#E3F2FD] rounded-lg p-1">{['WTD', 'MTD', 'YTD', 'ALL'].map((time) => (<button key={time} onClick={() => setTimeFilter(time)} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${timeFilter === time ? 'bg-white text-[#4285F4] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{time}</button>))}</div>
                       {/* Dropdowns */}
                       <div className="relative">
-                        <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={repFilter} onChange={(e) => setRepFilter(e.target.value)}>{uniqueReps.map(r => <option key={r} value={r}>{r === 'All' ? 'All Sales Reps' : r}</option>)}</select>
+                        <button
+                          className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none min-w-[160px] text-left"
+                          onClick={() => setShowRepPopover(!showRepPopover)}
+                          style={{ position: "relative" }}
+                        >
+                          {repFilter.length === 1 && repFilter[0] === "All"
+                            ? "All Sales Reps"
+                            : repFilter.length === 0
+                            ? "Select Sales Reps"
+                            : repFilter.join(", ")}
+                        </button>
+                        {showRepPopover && (
+                          <div
+                            className="absolute z-50 bg-white border border-slate-200 rounded-lg shadow-lg mt-2 p-3 min-w-[220px]"
+                            style={{ left: 0 }}
+                          >
+                            <div className="flex justify-between items-center mb-2">
+                              <button
+                                className="text-blue-600 text-xs font-medium hover:underline"
+                                onClick={() => setRepFilter(filteredReps.filter(r => r !== "All"))}
+                              >
+                                Select all {filteredReps.length - (filteredReps.includes("All") ? 1 : 0)}
+                              </button>
+                              <button
+                                className="text-blue-600 text-xs font-medium hover:underline"
+                                onClick={() => setRepFilter(["All"])}
+                              >
+                                Clear
+                              </button>
+                              <span className="text-xs text-slate-700">Displaying {filteredReps.length - (filteredReps.includes("All") ? 1 : 0)}</span>
+                            </div>
+                            <input
+                              type="text"
+                              className="w-full mb-2 px-2 py-1 border border-slate-200 rounded text-sm"
+                              placeholder="Search..."
+                              value={repSearch}
+                              onChange={e => setRepSearch(e.target.value)}
+                            />
+                            <div style={{ maxHeight: "180px", overflowY: "auto" }}>
+                              {filteredReps.filter(r => r !== "All").map(rep => (
+                                <div
+                                  key={rep}
+                                  className="flex items-center gap-2 py-1 cursor-pointer hover:bg-slate-50 rounded"
+                                  onClick={() => {
+                                    if (repFilter.includes(rep)) {
+                                      const newFilter = repFilter.filter(r => r !== rep);
+                                      setRepFilter(newFilter.length ? newFilter : ["All"]);
+                                    } else {
+                                      setRepFilter(repFilter.includes("All") ? [rep] : [...repFilter, rep]);
+                                    }
+                                  }}
+                                >
+                                  <span style={{ fontSize: "1.2em" }}>{repFilter.includes(rep) ? "✓" : ""}</span>
+                                  <span className="text-base text-slate-800">{rep}</span>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex justify-end mt-2">
+                              <button
+                                className="px-3 py-1 bg-green-600 text-white rounded font-medium text-sm"
+                                onClick={() => setShowRepPopover(false)}
+                              >OK</button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <div className="relative">
                         <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>{uniqueGroups.map(g => <option key={g} value={g}>{g === 'All' ? 'All Groups' : g}</option>)}</select>
@@ -1123,7 +1557,7 @@
                         <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={salesTypeFilter} onChange={(e) => setSalesTypeFilter(e.target.value)}>{salesTypeOptions.map(s => <option key={s} value={s}>{s}</option>)}</select>
                       </div>
                     </div>
-                    <button onClick={() => { setRepFilter('All'); setConditionFilter('All'); setCategoryFilter('All'); setLockInFilter('All'); setTimeFilter('ALL'); setDealTypeFilter('All'); setGroupFilter('All'); setSalesTypeFilter('All Sales Types'); }} className="text-xs text-red-500 hover:text-red-700 font-medium mt-4">Reset Filters</button>
+                    <button onClick={() => { setRepFilter(['All']); setConditionFilter(['All']); setCategoryFilter(['All']); setLockInFilter(['All Lockins']); setTimeFilter('ALL'); setDealTypeFilter(['All']); setGroupFilter(['All']); setSalesTypeFilter('All Sales Types'); setDeliveryStatusFilter(['All']); setMonthFilter(['All']); }} className="text-xs text-red-500 hover:text-red-700 font-medium mt-4">Reset Filters</button>
                   </div>
                 )}
               </div>
