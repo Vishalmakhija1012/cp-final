@@ -292,9 +292,30 @@
             return ['All', ...uniqueMonths];
           };
 
-          const [uniqueMonths, setUniqueMonths] = React.useState(getUniqueMonths(leasingData));
+          // Helper: Get unique, valid, sorted months from timestamp
+          const getUniqueMonthsFromTimestamp = (data) => {
+            const months = data.map(d => {
+              if (!d.timestamp) return null;
+              const date = parseDate(d.timestamp);
+              if (!date || isNaN(date)) return null;
+              // Format as 'Mon-YYYY' (e.g., 'Dec-2025')
+              const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+              return `${monthNames[date.getMonth()]}-${date.getFullYear()}`;
+            }).filter(Boolean);
+            const uniqueMonths = Array.from(new Set(months)).sort((a, b) => {
+              // Sort by date
+              const [ma, ya] = a.split('-');
+              const [mb, yb] = b.split('-');
+              const da = new Date(`${ma} 1, ${ya}`);
+              const db = new Date(`${mb} 1, ${yb}`);
+              return db - da; // Descending
+            });
+            return ['All', ...uniqueMonths];
+          };
+
+          const [uniqueMonths, setUniqueMonths] = React.useState(getUniqueMonthsFromTimestamp(leasingData));
           React.useEffect(() => {
-            setUniqueMonths(getUniqueMonths(leasingData));
+            setUniqueMonths(getUniqueMonthsFromTimestamp(leasingData));
           }, [leasingData]);
 
           // Filtered reps for search
@@ -394,7 +415,13 @@
             // Month filter
             if (monthFilter.length && !(monthFilter.length === 1 && normMonth(monthFilter[0]) === 'all')) {
               const monthSet = monthFilter.map(normMonth);
-              data = data.filter(d => monthSet.includes(normMonth(d.month || d.deliveryMonth || d.delivery_month || d['Month'] || d['Delivery Month'] || '')));
+              data = data.filter(d => {
+                if (!d.timestamp) return false;
+                const date = parseDate(d.timestamp);
+                if (!date || isNaN(date)) return false;
+                const monthStr = `${['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'][date.getMonth()]}-${date.getFullYear()}`;
+                return monthSet.includes(normMonth(monthStr));
+              });
             }
 
             // Time Filter (WTD, MTD, YTD, ALL)
@@ -862,6 +889,40 @@
                         </div>
                         <div className="flex justify-end mt-2">
                           <button className="px-3 py-1 bg-green-600 text-white rounded font-medium text-sm" onClick={() => setShowLockInPopover(false)}>OK</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Month Multi-Select Popover */}
+                  <div className="relative">
+                    <button className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none min-w-[160px] text-left" onClick={() => setShowMonthPopover(!showMonthPopover)} style={{ position: "relative" }}>
+                      {monthFilter.length === 1 && monthFilter[0] === "All" ? "All Months" : monthFilter.length === 0 ? "Select Months" : monthFilter.join(", ")}
+                    </button>
+                    {showMonthPopover && (
+                      <div className="absolute z-50 bg-white border border-slate-200 rounded-lg shadow-lg mt-2 p-3 min-w-[220px]" style={{ left: 0 }}>
+                        <div className="flex justify-between items-center mb-2">
+                          <button className="text-blue-600 text-xs font-medium hover:underline" onClick={() => setMonthFilter(uniqueMonths.filter(m => m !== "All"))}>Select all {uniqueMonths.length - 1}</button>
+                          <button className="text-blue-600 text-xs font-medium hover:underline" onClick={() => setMonthFilter(["All"])}>Clear</button>
+                          <span className="text-xs text-slate-700">Displaying {uniqueMonths.length - 1}</span>
+                        </div>
+                        <input type="text" className="w-full mb-2 px-2 py-1 border border-slate-200 rounded text-sm" placeholder="Search..." value={monthSearch} onChange={e => setMonthSearch(e.target.value)} />
+                        <div style={{ maxHeight: "180px", overflowY: "auto" }}>
+                          {uniqueMonths.filter(m => m !== "All" && m.toLowerCase().includes(monthSearch.toLowerCase())).map(month => (
+                            <div key={month} className="flex items-center gap-2 py-1 cursor-pointer hover:bg-slate-50 rounded" onClick={() => {
+                              if (monthFilter.includes(month)) {
+                                setMonthFilter(monthFilter.filter(mf => mf !== month));
+                              } else {
+                                setMonthFilter([...monthFilter.filter(mf => mf !== "All"), month]);
+                              }
+                            }}>
+                              <span style={{ fontSize: "1.2em" }}>{monthFilter.includes(month) ? "✓" : ""}</span>
+                              <span className="text-base text-slate-800">{month}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex justify-end mt-2">
+                          <button className="px-3 py-1 bg-green-600 text-white rounded font-medium text-sm" onClick={() => setShowMonthPopover(false)}>OK</button>
                         </div>
                       </div>
                     )}
