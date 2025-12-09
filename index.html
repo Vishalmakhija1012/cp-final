@@ -73,6 +73,29 @@
           });
         }
 
+        // Helper: Robust date parsing for various formats
+        const parseDate = (dateStr) => {
+          if (!dateStr) return null;
+          // Try to parse MM/DD/YYYY HH:mm:ss
+          const parts = dateStr.trim().split(/\s+/);
+          let datePart = parts[0];
+          let timePart = parts[1] || '';
+          // If datePart is in DD/MM/YYYY, swap to MM/DD/YYYY
+          const dateParts = datePart.split('/');
+          if (dateParts.length === 3) {
+            // If month > 12, assume DD/MM/YYYY and swap
+            if (parseInt(dateParts[0], 10) > 12) {
+              datePart = `${dateParts[1]}/${dateParts[0]}/${dateParts[2]}`;
+            }
+          }
+          // Build ISO string
+          const isoStr = `${datePart}${timePart ? 'T' + timePart : ''}`;
+          const d = new Date(isoStr);
+          if (!isNaN(d)) return d;
+          // Fallback: try Date constructor
+          return new Date(dateStr);
+        };
+
         // --- UTILITY COMPONENTS ---
 
         const Card = ({ children, className = "" }) => (
@@ -234,7 +257,8 @@
             const fetchSheetData = async () => {
               setIsLoadingData(true);
               try {
-                const response = await fetch(SHEETS_API_URL);
+                // Always append a cache-busting timestamp to ensure fresh data
+                const response = await fetch(SHEETS_API_URL + `&t=${Date.now()}`);
                 const apiData = await response.json();
                 const data = sheetsToJson(apiData);
                 setLeasingData(data);
@@ -377,9 +401,11 @@
             if (timeFilter && timeFilter !== 'ALL') {
               const now = new Date();
               data = data.filter(d => {
-                const dateStr = d.deliveryDate || d.date || d['Delivery Date'] || d['Date'] || '';
+                // Always use d.timestamp for date filtering
+                const dateStr = d.timestamp || '';
                 if (!dateStr) return false;
-                const date = new Date(dateStr);
+                const date = parseDate(dateStr);
+                if (!date || isNaN(date)) return false;
                 if (timeFilter === 'WTD') {
                   // Week to date: from last Monday to now
                   const day = now.getDay();
