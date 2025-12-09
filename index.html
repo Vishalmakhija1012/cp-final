@@ -229,6 +229,9 @@
           const [showMobileFilters, setShowMobileFilters] = React.useState(false);
           const [monthFilter, setMonthFilter] = React.useState(['All']);
           const [tablePoFilter, setTablePoFilter] = React.useState('All'); // 'All', 'PO Received', 'Proposal'
+          // New filters
+          const [clientTypeFilter, setClientTypeFilter] = React.useState('All'); // 'All', 'Hunting', 'Farming'
+          const [deviceConditionFilter, setDeviceConditionFilter] = React.useState('All'); // 'All', 'New Machines', 'Old Machines'
 
           // Table sorting state and handler for Top Performers
           const [sortCol, setSortCol] = React.useState('contractValue');
@@ -451,6 +454,25 @@
                   const jan1 = new Date(now.getFullYear(), 0, 1);
                   return date >= jan1 && date <= now;
                 }
+                return true;
+              });
+            }
+
+            // Hunting vs Farming filter
+            if (clientTypeFilter !== 'All') {
+              data = data.filter(d => {
+                if (clientTypeFilter === 'Hunting') return (d.clientType || '').toLowerCase() === 'new';
+                if (clientTypeFilter === 'Farming') return (d.clientType || '').toLowerCase() === 'existing';
+                return true;
+              });
+            }
+
+            // Old vs New Machines filter
+            if (deviceConditionFilter !== 'All') {
+              data = data.filter(d => {
+                const cond = (d.condition || '').toLowerCase();
+                if (deviceConditionFilter === 'New Machines') return cond === 'new';
+                if (deviceConditionFilter === 'Old Machines') return cond === 'old with warranty' || cond === 'old without warranty';
                 return true;
               });
             }
@@ -894,40 +916,28 @@
                     )}
                   </div>
 
-                  {/* Month Multi-Select Popover */}
-                  <div className="relative">
-                    <button className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none min-w-[160px] text-left" onClick={() => setShowMonthPopover(!showMonthPopover)} style={{ position: "relative" }}>
-                      {monthFilter.length === 1 && monthFilter[0] === "All" ? "All Months" : monthFilter.length === 0 ? "Select Months" : monthFilter.join(", ")}
-                    </button>
-                    {showMonthPopover && (
-                      <div className="absolute z-50 bg-white border border-slate-200 rounded-lg shadow-lg mt-2 p-3 min-w-[220px]" style={{ left: 0 }}>
-                        <div className="flex justify-between items-center mb-2">
-                          <button className="text-blue-600 text-xs font-medium hover:underline" onClick={() => setMonthFilter(uniqueMonths.filter(m => m !== "All"))}>Select all {uniqueMonths.length - 1}</button>
-                          <button className="text-blue-600 text-xs font-medium hover:underline" onClick={() => setMonthFilter(["All"])}>Clear</button>
-                          <span className="text-xs text-slate-700">Displaying {uniqueMonths.length - 1}</span>
-                        </div>
-                        <input type="text" className="w-full mb-2 px-2 py-1 border border-slate-200 rounded text-sm" placeholder="Search..." value={monthSearch} onChange={e => setMonthSearch(e.target.value)} />
-                        <div style={{ maxHeight: "180px", overflowY: "auto" }}>
-                          {uniqueMonths.filter(m => m !== "All" && m.toLowerCase().includes(monthSearch.toLowerCase())).map(month => (
-                            <div key={month} className="flex items-center gap-2 py-1 cursor-pointer hover:bg-slate-50 rounded" onClick={() => {
-                              if (monthFilter.includes(month)) {
-                                setMonthFilter(monthFilter.filter(mf => mf !== month));
-                              } else {
-                                setMonthFilter([...monthFilter.filter(mf => mf !== "All"), month]);
-                              }
-                            }}>
-                              <span style={{ fontSize: "1.2em" }}>{monthFilter.includes(month) ? "✓" : ""}</span>
-                              <span className="text-base text-slate-800">{month}</span>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="flex justify-end mt-2">
-                          <button className="px-3 py-1 bg-green-600 text-white rounded font-medium text-sm" onClick={() => setShowMonthPopover(false)}>OK</button>
-                        </div>
-                      </div>
-                    )}
+                  {/* Hunting vs Farming Filter */}
+                  <div className="flex gap-2">
+                    {['All', 'Hunting', 'Farming'].map(type => (
+                      <button
+                        key={type}
+                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${clientTypeFilter === type ? 'bg-[#4285F4] text-white' : 'bg-[#E3F2FD] text-slate-700'}`}
+                        onClick={() => setClientTypeFilter(type)}
+                      >{type}</button>
+                    ))}
                   </div>
-                  
+
+                  {/* Old vs New Machines Filter */}
+                  <div className="flex gap-2">
+                    {['All', 'New Machines', 'Old Machines'].map(cond => (
+                      <button
+                        key={cond}
+                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${deviceConditionFilter === cond ? 'bg-[#EA4335] text-white' : 'bg-[#E3F2FD] text-slate-700'}`}
+                        onClick={() => setDeviceConditionFilter(cond)}
+                      >{cond}</button>
+                    ))}
+                  </div>
+
                   {/* Reset Button */}
                   {(repFilter !== 'All' || conditionFilter !== 'All' || categoryFilter !== 'All' || lockInFilter !== 'All' || timeFilter !== 'ALL' || dealTypeFilter !== 'All' || groupFilter !== 'All') && (
                     <button onClick={() => { setRepFilter(['All']); setConditionFilter(['All']); setCategoryFilter(['All']); setLockInFilter(['All Lockins']); setTimeFilter('ALL'); setDealTypeFilter(['All']); setGroupFilter(['All']); setDeliveryStatusFilter(['Ordered', 'Delivered', 'Pending']); setMonthFilter(['All']); }} className="text-xs text-red-500 hover:text-red-700 font-medium ml-auto">Reset Filters</button>
