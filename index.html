@@ -298,9 +298,9 @@
           // Helper: Get unique, valid, sorted months from timestamp
           const getUniqueMonthsFromTimestamp = (data) => {
             const months = data.map(d => {
-              if (!d.timestamp) return null;
+              if (!d.timestamp) return false;
               const date = parseDate(d.timestamp);
-              if (!date || isNaN(date)) return null;
+              if (!date || isNaN(date)) return false;
               // Format as 'Mon-YYYY' (e.g., 'Dec-2025')
               const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
               return `${monthNames[date.getMonth()]}-${date.getFullYear()}`;
@@ -911,6 +911,41 @@
                         </div>
                         <div className="flex justify-end mt-2">
                           <button className="px-3 py-1 bg-green-600 text-white rounded font-medium text-sm" onClick={() => setShowLockInPopover(false)}>OK</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Month Filter */}
+                  <div className="relative">
+                    <button className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none min-w-[160px] text-left" onClick={() => setShowMonthPopover(!showMonthPopover)} style={{ position: "relative" }}>
+                      {monthFilter.length === 1 && monthFilter[0] === "All" ? "All Months" : monthFilter.length === 0 ? "Select Month" : monthFilter.join(", ")}
+                    </button>
+                    {showMonthPopover && (
+                      <div className="absolute z-50 bg-white border border-slate-200 rounded-lg shadow-lg mt-2 p-3 min-w-[220px]" style={{ left: 0 }}>
+                        <div className="flex justify-between items-center mb-2">
+                          <button className="text-blue-600 text-xs font-medium hover:underline" onClick={() => setMonthFilter(uniqueMonths.filter(m => m !== "All"))}>Select all {uniqueMonths.length - 1}</button>
+                          <button className="text-blue-600 text-xs font-medium hover:underline" onClick={() => setMonthFilter(["All"])}>Clear</button>
+                          <span className="text-xs text-slate-700">Displaying {uniqueMonths.length - 1}</span>
+                        </div>
+                        <input type="text" className="w-full mb-2 px-2 py-1 border border-slate-200 rounded text-sm" placeholder="Search..." value={monthSearch} onChange={e => setMonthSearch(e.target.value)} />
+                        <div style={{ maxHeight: "180px", overflowY: "auto" }}>
+                          {uniqueMonths.filter(m => m !== "All" && m.toLowerCase().includes(monthSearch.toLowerCase())).map(month => (
+                            <div key={month} className="flex items-center gap-2 py-1 cursor-pointer hover:bg-slate-50 rounded" onClick={() => {
+                              if (monthFilter.includes(month)) {
+                                const newFilter = monthFilter.filter(mf => mf !== month);
+                                setMonthFilter(newFilter.length ? newFilter : ["All"]);
+                              } else {
+                                setMonthFilter(monthFilter.includes("All") ? [month] : [...monthFilter, month]);
+                              }
+                            }}>
+                              <span style={{ fontSize: "1.2em" }}>{monthFilter.includes(month) ? "✓" : ""}</span>
+                              <span className="text-base text-slate-800">{month}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex justify-end mt-2">
+                          <button className="px-3 py-1 bg-green-600 text-white rounded font-medium text-sm" onClick={() => setShowMonthPopover(false)}>OK</button>
                         </div>
                       </div>
                     )}
@@ -1584,117 +1619,10 @@
                           </tr>
                         );
                       })}
-                      {(tablePoFilter === 'All' ? filteredData : tablePoFilter === 'PO Received' ? filteredData.filter(deal => deal.poReceived === 'Yes') : filteredData.filter(deal => deal.poReceived !== 'Yes')).length === 0 && (<tr><td colSpan={8} className="p-8 text-center text-slate-400">No contracts match your current filters. Try selecting "All" for time period.</td></tr>)}
                     </tbody>
                   </table>
                 </div>
               </Card>
-
-              {/* MOBILE FILTER FOOTER */}
-              <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 lg:hidden">
-                <button
-                  className="bg-[#4285F4] text-white px-6 py-2 rounded-full shadow-lg font-bold text-base flex items-center gap-2"
-                  onClick={() => setShowMobileFilters(!showMobileFilters)}
-                >
-                  <i data-lucide="filter" className="w-5 h-5"></i>
-                  Filters
-                </button>
-                {showMobileFilters && (
-                  <div className="mt-2 bg-white rounded-xl shadow-xl p-4 border border-slate-200 w-[90vw] max-w-md mx-auto">
-                    <div className="flex flex-wrap items-center gap-4">
-                      {/* Time Filter Tabs */}
-                      <div className="flex bg-[#E3F2FD] rounded-lg p-1">{['WTD', 'MTD', 'YTD', 'ALL'].map((time) => (<button key={time} onClick={() => setTimeFilter(time)} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${timeFilter === time ? 'bg-white text-[#4285F4] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{time}</button>))}</div>
-                      {/* Dropdowns */}
-                      <div className="relative">
-                        <button
-                          className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none min-w-[160px] text-left"
-                          onClick={() => setShowRepPopover(!showRepPopover)}
-                          style={{ position: "relative" }}
-                        >
-                          {repFilter.length === 1 && repFilter[0] === "All"
-                            ? "All Sales Reps"
-                            : repFilter.length === 0
-                            ? "Select Sales Reps"
-                            : repFilter.join(", ")}
-                        </button>
-                        {showRepPopover && (
-                          <div
-                            className="absolute z-50 bg-white border border-slate-200 rounded-lg shadow-lg mt-2 p-3 min-w-[220px]"
-                            style={{ left: 0 }}
-                          >
-                            <div className="flex justify-between items-center mb-2">
-                              <button
-                                className="text-blue-600 text-xs font-medium hover:underline"
-                                onClick={() => setRepFilter(filteredReps.filter(r => r !== "All"))}
-                              >
-                                Select all {filteredReps.length - (filteredReps.includes("All") ? 1 : 0)}
-                              </button>
-                              <button
-                                className="text-blue-600 text-xs font-medium hover:underline"
-                                onClick={() => setRepFilter(["All"])}
-                              >
-                                Clear
-                              </button>
-                              <span className="text-xs text-slate-700">Displaying {filteredReps.length - (filteredReps.includes("All") ? 1 : 0)}</span>
-                            </div>
-                            <input
-                              type="text"
-                              className="w-full mb-2 px-2 py-1 border border-slate-200 rounded text-sm"
-                              placeholder="Search..."
-                              value={repSearch}
-                              onChange={e => setRepSearch(e.target.value)}
-                            />
-                            <div style={{ maxHeight: "180px", overflowY: "auto" }}>
-                              {filteredReps.filter(r => r !== "All").map(rep => (
-                                <div
-                                  key={rep}
-                                  className="flex items-center gap-2 py-1 cursor-pointer hover:bg-slate-50 rounded"
-                                  onClick={() => {
-                                    if (repFilter.includes(rep)) {
-                                      const newFilter = repFilter.filter(r => r !== rep);
-                                      setRepFilter(newFilter.length ? newFilter : ["All"]);
-                                    } else {
-                                      setRepFilter(repFilter.includes("All") ? [rep] : [...repFilter, rep]);
-                                    }
-                                  }}
-                                >
-                                  <span style={{ fontSize: "1.2em" }}>{repFilter.includes(rep) ? "✓" : ""}</span>
-                                  <span className="text-base text-slate-800">{rep}</span>
-                                </div>
-                              ))}
-                            </div>
-                            <div className="flex justify-end mt-2">
-                              <button
-                                className="px-3 py-1 bg-green-600 text-white rounded font-medium text-sm"
-                                onClick={() => setShowRepPopover(false)}
-                              >OK</button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      <div className="relative">
-                        <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>{uniqueGroups.map(g => <option key={g} value={g}>{g === 'All' ? 'All Groups' : g}</option>)}</select>
-                      </div>
-                      <div className="relative">
-                        <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={conditionFilter} onChange={(e) => setConditionFilter(e.target.value)}>{uniqueConditions.map(c => <option key={c} value={c}>{c === 'All' ? 'All Conditions' : c}</option>)}</select>
-                      </div>
-                      <div className="relative">
-                        <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>{uniqueCategories.map(c => <option key={c} value={c}>{c === 'All' ? 'All Products' : c}</option>)}</select>
-                      </div>
-                      <div className="relative">
-                        <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={lockInFilter} onChange={(e) => setLockInFilter(e.target.value)}>{lockInOptions.map(l => <option key={l} value={l}>{l}</option>)}</select>
-                      </div>
-                      <div className="relative">
-                        <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={dealTypeFilter} onChange={(e) => setDealTypeFilter(e.target.value)}>{dealTypeOptions.map(d => <option key={d} value={d}>{d === 'All' ? 'All Deal Types' : d}</option>)}</select>
-                      </div>
-                      <div className="relative">
-                        <select className="pl-8 pr-4 py-1.5 bg-[#E3F2FD] border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#4285F4] appearance-none" value={salesTypeFilter} onChange={(e) => setSalesTypeFilter(e.target.value)}>{salesTypeOptions.map(s => <option key={s} value={s}>{s}</option>)}</select>
-                      </div>
-                    </div>
-                    <button onClick={() => { setRepFilter(['All']); setConditionFilter(['All']); setCategoryFilter(['All']); setLockInFilter(['All Lockins']); setTimeFilter('ALL'); setDealTypeFilter(['All']); setGroupFilter(['All']); setSalesTypeFilter('All Sales Types'); setDeliveryStatusFilter(['All']); setMonthFilter(['All']); }} className="text-xs text-red-500 hover:text-red-700 font-medium mt-4">Reset Filters</button>
-                  </div>
-                )}
-              </div>
             </div>
           );
         };
